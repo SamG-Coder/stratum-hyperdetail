@@ -42,7 +42,12 @@ __global__ void shadePixels(const float* World,const float* P,const float* C,con
  if(id!=-10000){
   float3 p=ro+rd*t;float3 n=make_float3(0.0f,1.0f,0.0f);int mat=10;float seed=0.0f;
   if(id>=0){n=primitiveNormal(P,id,p);mat=(int)P[id*PS+7];seed=P[id*PS+9];}
-  else if(id<=-2){int wi=-id-2;int wi8=wi*8;float3 c=make_float3((float)(wi%CITY-CITY/2)*CELL,(World[wi8+2]+4.5f)*0.5f,(float)(wi/CITY-CITY/2)*CELL);float3 h=make_float3(World[wi8],c.y,World[wi8+1]);float3 q=abs3(p-c);float3 e=make_float3(fabsf(q.x-h.x),fabsf(q.y-h.y),fabsf(q.z-h.z));n=e.y<e.x&&e.y<e.z?make_float3(0.0f,1.0f,0.0f):(e.x<e.z?make_float3(p.x<c.x?-1.0f:1.0f,0.0f,0.0f):make_float3(0.0f,0.0f,p.z<c.z?-1.0f:1.0f));mat=n.y>0.5f?2:(int)World[wi8+4];seed=World[wi8+6];}
+  else if(id<=-2){int wi=-id-2;int wi8=wi*8;float lotX=(float)(wi%CITY-CITY/2)*CELL,lotZ=(float)(wi/CITY-CITY/2)*CELL;float bh=World[wi8+2];
+   // Ray-time macro silhouette can extend above the facade body. Shade those hits as roof
+   // instead of stretching facade material/windows up through chimneys and dormers.
+   if(p.y>bh+0.12f){n=make_float3(0.0f,1.0f,0.0f);mat=((int)World[wi8+3]==1)?3:2;}
+   else{float3 c=make_float3(lotX,bh*0.5f,lotZ);float3 h=make_float3(World[wi8],bh*0.5f,World[wi8+1]);float3 q=abs3(p-c);float3 e=make_float3(fabsf(q.x-h.x),fabsf(q.y-h.y),fabsf(q.z-h.z));n=e.y<e.x&&e.y<e.z?make_float3(0.0f,1.0f,0.0f):(e.x<e.z?make_float3(p.x<c.x?-1.0f:1.0f,0.0f,0.0f):make_float3(0.0f,0.0f,p.z<c.z?-1.0f:1.0f));mat=n.y>0.5f?2:(int)World[wi8+4];}
+   seed=World[wi8+6];}
   else{
    int cx=(int)floorf((p.x+18.0f)/CELL);int cz=(int)floorf((p.z+18.0f)/CELL);float xx=fabsf(p.x-(float)cx*CELL);float zz=fabsf(p.z-(float)cz*CELL);
    if(xx<16.5f&&zz<16.5f)mat=11;
