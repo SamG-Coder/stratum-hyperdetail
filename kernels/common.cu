@@ -6,7 +6,7 @@
 #define CACHE_SIDE 16
 #define PAGES 256
 #define CLUSTERS 64
-#define PER_CLUSTER 48
+#define PER_CLUSTER 32
 #define PRIMS 2048
 #define NODES 4096
 #define PS 16
