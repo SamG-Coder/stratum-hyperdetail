@@ -23,7 +23,9 @@ jobs:
         with:
           node-version: 22
       - name: Compile CUDA entry points and run tests
-        run: npm test
+        run: |
+          npm run build
+          npm test
       - name: Package static site
         run: npm run pages
       - name: Upload Pages artifact
