@@ -135,12 +135,53 @@ __device__ float2 pageHit(const float* P,const float* Nodes,const int* Order,int
  }
  return make_float2(best,(float)found);
 }
+__device__ float macroBox(float3 ro,float3 rd,float3 c,float3 h){
+ float2 span=boxRange(ro,rd,c-h,c+h);if(span.y<fmaxf(0.001f,span.x))return FAR;return span.x>0.001f?span.x:span.y;
+}
+__device__ float macroCylinder(float3 ro,float3 rd,float3 c,float radius,float halfHeight){
+ float3 p=ro-c;float a=rd.x*rd.x+rd.z*rd.z;float bb=p.x*rd.x+p.z*rd.z;float cc=p.x*p.x+p.z*p.z-radius*radius;float best=FAR;
+ float disc=bb*bb-a*cc;if(disc>=0.0f&&a>0.0000001f){float q=sqrtf(disc);float t0=(-bb-q)/a;float t1=(-bb+q)/a;
+  if(t0>0.001f&&fabsf(p.y+rd.y*t0)<=halfHeight)best=t0;if(t1>0.001f&&fabsf(p.y+rd.y*t1)<=halfHeight)best=fminf(best,t1);}
+ return best;
+}
 __device__ float2 macroHit(const float* World,int wi,float3 ro,float3 rd,float best){
  int b=wi*8;int type=(int)World[b+3];if(type==3||type==4)return make_float2(best,-10000.0f);
- int cx=wi%CITY-CITY/2;int cz=wi/CITY-CITY/2;float x=(float)cx*CELL;float z=(float)cz*CELL;float h=World[b+2];
- float2 span=boxRange(ro,rd,make_float3(x-World[b],0.0f,z-World[b+1]),make_float3(x+World[b],h+4.5f,z+World[b+1]));
- if(span.y>=fmaxf(0.001f,span.x)){float t=span.x>0.001f?span.x:span.y;if(t<best)return make_float2(t,(float)(-wi-2));}
- return make_float2(best,-10000.0f);
+ int cx=wi%CITY-CITY/2;int cz=wi/CITY-CITY/2;float x=(float)cx*CELL;float z=(float)cz*CELL;
+ float w=World[b],d=World[b+1],h=World[b+2],seed=World[b+6];float hit=best;
+ // Base mass remains analytic, but the far silhouette is no longer just one tall box.
+ float bodyTop=h;float roofRise=type==0?4.8f:(type==1?13.8f:16.0f);
+ float t=macroBox(ro,rd,make_float3(x,bodyTop*0.5f,z),make_float3(w,bodyTop*0.5f,d));if(t<hit)hit=t;
+ // Roof mass. Pitched roofs use nested boxes to approximate the authored slope at ray time;
+ // tower/dome lots keep their distinctive upper mass outside the resident geometry cache.
+ if(type==0){
+  for(int band=0;band<4;band++){float f=(float)band/4.0f;float yy=h+0.55f+f*3.8f;float shrink=f*0.72f;
+   t=macroBox(ro,rd,make_float3(x,yy,z),make_float3(fmaxf(0.8f,w-shrink),0.52f,fmaxf(0.8f,d-shrink)));if(t<hit)hit=t;}
+  // Chimneys and dormer silhouettes are deterministic and require no page residency.
+  for(int k=0;k<4;k++){float xx=x+(k%2==0?-w*0.52f:w*0.52f);float zz=z+((float)(k/2)-0.5f)*d;
+   t=macroBox(ro,rd,make_float3(xx,h+3.9f,zz),make_float3(0.52f,2.25f,0.60f));if(t<hit)hit=t;}
+  for(int k=0;k<4;k++){float xx=x+(k%2==0?-w*0.67f:w*0.67f);float zz=z+((float)(k/2)-0.5f)*d*0.95f;
+   t=macroBox(ro,rd,make_float3(xx,h+2.45f,zz),make_float3(1.38f,1.08f,1.10f));if(t<hit)hit=t;}
+ }else if(type==1){
+  t=macroCylinder(ro,rd,make_float3(x,h+2.2f,z),w*0.72f,2.0f);if(t<hit)hit=t;
+  // Dome silhouette: stacked analytic discs contract toward the crown.
+  for(int band=0;band<6;band++){float f=(float)band/6.0f;float rad=w*0.79f*sqrtf(fmaxf(0.02f,1.0f-f*f));float yy=h+3.2f+f*8.2f;
+   t=macroCylinder(ro,rd,make_float3(x,yy,z),rad,0.82f);if(t<hit)hit=t;}
+  t=macroCylinder(ro,rd,make_float3(x,h+12.8f,z),0.30f,1.9f);if(t<hit)hit=t;
+ }else{
+  t=macroBox(ro,rd,make_float3(x,h+2.6f,z),make_float3(w*0.72f,2.6f,d+0.2f));if(t<hit)hit=t;
+  for(int k=0;k<2;k++){float xx=x+(k==0?-w*0.75f:w*0.75f),zz=z+d*0.60f;
+   t=macroBox(ro,rd,make_float3(xx,h+5.7f,zz),make_float3(2.4f,7.4f,2.4f));if(t<hit)hit=t;
+   for(int band=0;band<3;band++){float yy=h+11.4f+(float)band*1.5f;float sh=2.6f-(float)band*0.55f;
+    t=macroBox(ro,rd,make_float3(xx,yy,zz),make_float3(sh,0.85f,sh));if(t<hit)hit=t;}
+   t=macroCylinder(ro,rd,make_float3(xx,h+16.3f,zz),0.20f,1.4f);if(t<hit)hit=t;
+  }
+ }
+ // A small deterministic roof-service population keeps distant rooflines from collapsing
+ // into perfectly clean CG silhouettes.
+ for(int k=0;k<3;k++){float rx=hash1((int)seed+901+k*7)*2.0f-1.0f;float rz=hash1((int)seed+947+k*11)*2.0f-1.0f;
+  float xx=x+rx*w*0.55f,zz=z+rz*d*0.55f;float hh=0.42f+hash1((int)seed+983+k)*0.48f;
+  t=macroBox(ro,rd,make_float3(xx,h+hh,zz),make_float3(0.28f,hh,0.28f));if(t<hit)hit=t;}
+ if(hit<best)return make_float2(hit,(float)(-wi-2));return make_float2(best,-10000.0f);
 }
 __device__ float2 traceScene(const float* World,const float* Meta,const float* P,const float* Nodes,const int* Order,float3 ro,float3 rd){
  float best=FAR;int found=-10000;
