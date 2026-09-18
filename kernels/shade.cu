@@ -83,8 +83,42 @@ __global__ void shadePixels(const float* World,const float* P,const float* C,con
   }
   if(mat==8)result=result+make_float3(1.1f,0.62f,0.19f)*0.8f;
   if(mat==7)result=result+albedo*(powf(fmaxf(0.0f,dot3(rd,sun)),4.0f)*0.35f);
-  // Procedural distant facade windows remain visible without retaining their geometry pages.
-  if(id<=-2&&fabsf(originalN.y)<0.5f){float uu=fractf(uv.x/5.6f);float vv=fractf((p.y-4.2f)/3.8f);float pane=smoothf(0.20f,0.26f,uu)*(1.0f-smoothf(0.65f,0.71f,uu))*smoothf(0.20f,0.26f,vv)*(1.0f-smoothf(0.75f,0.81f,vv));result=mix3(result,make_float3(0.095f,0.135f,0.15f),pane*0.8f);}
+  // Far-field procedural facade evaluation. This is the city equivalent of ARBOR's
+  // ray-generated leaves: detail is evaluated from the same seed at the hit point instead
+  // of requiring another streamed mesh/page. Frequencies fade continuously with footprint.
+  if(id<=-2&&fabsf(originalN.y)<0.5f){
+   int wi=-id-2;int wb=wi*8;float floors=World[wb+5];float facadeSeed=World[wb+6];
+   float bay=5.6f;float storey=3.8f;float fu=fractf((uv.x+hash1((int)facadeSeed)*1.7f)/bay);float fv=fractf((p.y-4.2f)/storey);
+   float aa=clampf(footprint*0.32f,0.006f,0.085f);
+   float wx=smoothf(0.17f-aa,0.17f+aa,fu)*(1.0f-smoothf(0.83f-aa,0.83f+aa,fu));
+   float wy=smoothf(0.16f-aa,0.16f+aa,fv)*(1.0f-smoothf(0.82f-aa,0.82f+aa,fv));
+   float pane=wx*wy;
+   float frameX=1.0f-smoothf(0.025f,0.065f,fabsf(fu-0.5f));
+   float frameY=1.0f-smoothf(0.018f,0.055f,fabsf(fv-0.49f));
+   float frame=pane*sat(frameX+frameY);
+   float room=hash2((int)floorf(uv.x/bay),(int)floorf((p.y-4.2f)/storey),(int)facadeSeed);
+   float3 glass=room>0.82f?make_float3(0.20f,0.13f,0.065f):make_float3(0.070f,0.105f,0.125f);
+   result=mix3(result,glass,pane*(0.68f+0.18f*frequencyWeight(footprint,0.65f)));
+   result=mix3(result,make_float3(0.30f,0.29f,0.26f),frame*0.82f);
+   // Cornice/string course and alternating corner-stone cues survive into the distance
+   // but are analytically filtered before they become sub-pixel shimmer.
+   float coursePhase=fabsf(fractf((p.y-4.2f)/storey)-0.02f);
+   float course=(1.0f-smoothf(0.018f,0.055f+footprint*0.12f,coursePhase))*frequencyWeight(footprint,0.34f);
+   result=result*(1.0f-course*0.14f)+make_float3(0.20f,0.18f,0.14f)*course*0.10f;
+   float lotX=(float)(wi%CITY-CITY/2)*CELL;float lotZ=(float)(wi/CITY-CITY/2)*CELL;
+   float edge=fabsf(originalN.x)>0.5f?fabsf(p.z-lotZ):fabsf(p.x-lotX);
+   float ext=fabsf(originalN.x)>0.5f?World[wb+1]:World[wb];
+   float quoin=(1.0f-smoothf(0.35f,0.75f+footprint*0.5f,ext-edge))*frequencyWeight(footprint,0.5f);
+   float block=0.70f+0.30f*(float)imod((int)floorf(p.y/0.72f),2);
+   result=mix3(result,result*1.16f,quoin*block);
+   // Balcony depth cue: deterministic dark undersill plus metal rail at middle distance.
+   float balconyChance=hash2((int)floorf(uv.x/bay),(int)floorf(p.y/storey),(int)facadeSeed+91);
+   if(balconyChance>0.72f){
+    float under=(1.0f-smoothf(0.08f,0.16f+aa,fabsf(fv-0.18f)))*frequencyWeight(footprint,0.8f);
+    float rail=(1.0f-smoothf(0.025f,0.060f+aa,fabsf(fv-0.40f)))*frequencyWeight(footprint,1.2f);
+    result=result*(1.0f-under*0.22f);result=mix3(result,make_float3(0.18f,0.19f,0.18f),rail*0.48f);
+   }
+  }
   float fog=1.0f-expf(-t*0.00062f);float3 haze=sky(norm3(make_float3(rd.x,0.004f,rd.z)),sun);result=mix3(result,haze,fog);
   if(C[11]==1.0f){if(id>=0){int slot=id/PRIMS;float h=hash1(slot);result=make_float3(0.2f+0.7f*h,0.2f+0.7f*hash1(slot+31),0.2f+0.7f*hash1(slot+78));}else result=make_float3(0.10f,0.13f,0.16f);}
   if(C[11]==2.0f){if(id>=0){int cluster=id/PER_CLUSTER;result=make_float3(0.15f+0.75f*hash1(cluster),0.15f+0.75f*hash1(cluster+31),0.15f+0.75f*hash1(cluster+98));}else result=make_float3(0.09f,0.12f,0.14f);}
