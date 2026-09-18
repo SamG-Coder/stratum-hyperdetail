@@ -69,19 +69,12 @@ __global__ void selectPages(const float* C,const float* World,const float* Meta,
  bool visible=(z+45.0f>0.0f&&xx<(z*0.54f*aspect+65.0f)&&yy<z*0.54f+65.0f)||dist<55.0f;
  if(!visible||C[17]>0.5f)return;
  float ppm=C[13]/(1.08f*dist);
- // Five deterministic refinement bands. The extra near bands spend cache geometry
- // on features that are actually large enough to affect the current image.
- int lod=ppm>24.0f?5:(ppm>11.0f?4:(ppm>4.8f?3:(ppm>1.35f?2:1)));
+ // ARBOR-style residency: a cached lot is always the SAME deterministic full-detail lot.
+ // Projected footprint controls shading frequency and ray-time detail, not page replacement.
+ // This removes geometry regeneration/popping when the camera crosses a LOD threshold.
  int m=s*MS;bool same=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
- int old=(int)Meta[m+2];
- // Wide hysteresis makes transitions stable while walking. Detail only changes after
- // crossing a different projected-size band; no distance-only hard swap at one threshold.
- if(same&&old==5&&ppm>20.0f)lod=5;
- if(same&&old==4&&ppm>9.0f&&ppm<28.0f)lod=4;
- if(same&&old==3&&ppm>4.0f&&ppm<13.0f)lod=3;
- if(same&&old==2&&ppm>1.05f&&ppm<5.8f)lod=2;
- Req[b+2]=(float)lod;Req[b+4]=ppm;
- if(!same||old!=lod){Req[b+3]=10000.0f/(dist+5.0f)+(same?0.0f:80.0f);}
+ Req[b+2]=5.0f;Req[b+4]=ppm;
+ if(!same)Req[b+3]=10000.0f/(dist+5.0f)+80.0f;
 }
 __global__ void schedulePages(const float* Req,int* Queue,float* Stats){
  if(blockIdx.x!=0||threadIdx.x!=0)return;
