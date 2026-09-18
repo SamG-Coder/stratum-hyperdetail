@@ -183,10 +183,10 @@ The CUDA WebShader compiler/runtime was vendored from the existing Nocturne proj
 
 ## Hyperdetail / continuous projected refinement branch
 
-The `hyperdetail-continuous-lod` branch extends the original three page-detail bands to **five projected-detail bands**. Selection remains deterministic and screen-space driven, with wider hysteresis so walking toward a building refines the same seeded structure rather than visibly oscillating between distance thresholds.
+Hyperdetail removes discrete geometry LOD replacement for resident lots. A cached lot is the same deterministic full-detail structure at every camera distance. Projected footprint is instead used to continuously filter high-frequency procedural appearance, while uncached/distant facades evaluate seeded windows, frames, courses, corner stonework and balcony cues directly at the ray hit.
 
-Each procedural cluster can emit up to **48 primitives** while the page remains at the WebGPU-safe **2,048 primitive slots**. Near-detail work is distributed across the existing 64 spatial clusters instead of doubling the cooperative sort's shared-memory footprint. The extra near-camera capacity is spent on deterministic facade and environment structure: deeper window frames, paired pane divisions, sill drip edges, upper reveals, additional facade courses, balcony rail caps/supports/brackets, downpipes, curb furniture, pavement edge detail, roof vents, flashing and antenna supports.
+Each procedural page remains at the WebGPU-safe **2,048 primitive slots**, split into **64 × 32 deterministic clusters**. Cached lots are now generated once at their full authored detail instead of being regenerated when a distance threshold changes. The extra near-camera capacity is spent on deterministic facade and environment structure: deeper window frames, paired pane divisions, sill drip edges, upper reveals, additional facade courses, balcony rail caps/supports/brackets, downpipes, curb furniture, pavement edge detail, roof vents, flashing and antenna supports.
 
 These are not separate near/far building meshes. They are higher-frequency evaluations of the same lot seed and facade layout. Fine material frequencies continue to use projected-footprint filtering, while geometric features enter only when their projected scale justifies their ray-intersection cost.
 
-The larger cache intentionally trades GPU memory for close-range geometric fidelity. The cache remains bounded and does not grow with travel distance.
+The cache remains bounded and does not grow with travel distance. Far-field procedural facade evaluation preserves architectural frequency outside the cache without allocating another geometry page, following the same principle used by ARBOR's ray-generated foliage.
