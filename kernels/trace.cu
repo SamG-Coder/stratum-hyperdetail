@@ -220,15 +220,11 @@ __device__ float2 traceScene(const float* World,const float* Meta,const float* P
  float dx=CELL*fabsf(safeInv(rd.x));float dz=CELL*fabsf(safeInv(rd.z));
  for(int step=0;step<140;step++){
   if(!inCity(cx,cz)||t>best||t>bounds.y)break;
-  int wi=worldIndex(cx,cz);int slot=pageIndex(cx,cz);int m=slot*MS;
-  bool cached=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
-  // The full authored analytic page is canonical when resident. The procedural far path
-  // preserves the SAME seed/layout only until that page is available.
-  float2 hit;
-  if(cached)hit=pageHit(P,Nodes,Order,slot,ro,rd,best);
-  else{hit=macroHit(World,wi,ro,rd,best);float procedural=proceduralFacadeDepth(World,wi,ro,rd,hit.x);
-   if(procedural<hit.x)hit=make_float2(procedural,(float)(-wi-2));}
-  if(hit.x<best){best=hit.x;found=(int)hit.y;}
+  int wi=worldIndex(cx,cz);float authored=best;
+  // EXACT same authored grammar as generatePages: all 64 feature clusters are sent to the
+  // ray-query sink instead of a page buffer. No alternate macro/nonresident model exists.
+  for(int group=0;group<CLUSTERS;group++)authored=authoredGroup(World,cx,cz,5,group,P,0,1,ro,rd,authored);
+  if(authored<best){best=authored;found=-wi-2;}
   if(tx<tz){t=tx;tx+=dx;cx+=sx;}else{t=tz;tz+=dz;cz+=sz;}
  }
  return make_float2(best,(float)found);
