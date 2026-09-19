@@ -1,7 +1,7 @@
 # STRATUM
 ## The city is code.
 
-**[Fly the city](https://samg-coder.github.io/stratum/)** · [GPU checks](https://samg-coder.github.io/stratum/tests/browser.html)
+**[Fly the city](https://samg-coder.github.io/stratum-hyperdetail/)** · [GPU checks](https://samg-coder.github.io/stratum-hyperdetail/tests/browser.html)
 
 A fly-through procedural city renderer. CUDA source generates the scene, selects detail, fills a GPU geometry cache, constructs acceleration structures, traces visibility, evaluates materials, trains an optional small material surrogate, and produces the image.
 
@@ -154,7 +154,7 @@ npm run pages
 
 `build` translates all **18 entry points**, updates the readable generated WGSL and portable compiler artifacts, and regenerates `Stratum.cu`. Editing split `.cu` files requires a rebuild. Opening the application with `?compile=1` recompiles the split sources in the browser instead.
 
-`pages` writes a static `dist/` folder for an HTTPS host. It includes the real-WebGPU test page. GitHub Actions on `main` runs `npm test`, packages that folder, and deploys [GitHub Pages](https://samg-coder.github.io/stratum/).
+`pages` writes a static `dist/` folder for an HTTPS host. It includes the real-WebGPU test page. GitHub Actions on `main` runs `npm test`, packages that folder, and deploys [GitHub Pages](https://samg-coder.github.io/stratum-hyperdetail/).
 
 The combined `.cu` file is a **multi-kernel program**. It requires this project's buffer layout, repeated BVH dispatches, pass ordering and browser host. It is not a one-kernel sandbox paste-in or a standalone `.exe`.
 
@@ -170,7 +170,7 @@ Useful URL options:
 
 **Browser shader execution, hardware GPU performance and cross-driver behaviour have not been verified in the build environment.** Browser navigation was blocked there. There is no hidden CPU fallback in the shipped browser application.
 
-On your machine, open **http://localhost:8089/tests/browser.html** and press **Run GPU checks**. The same page is deployed at [https://samg-coder.github.io/stratum/tests/browser.html](https://samg-coder.github.io/stratum/tests/browser.html). It asks your real adapter to compile shaders, create procedural cache pages, run the GPU sort/BVH/render path, train weights and test freezing. The results page prints actual measurements or errors.
+On your machine, open **http://localhost:8089/tests/browser.html** and press **Run GPU checks**. The same page is deployed at [https://samg-coder.github.io/stratum-hyperdetail/tests/browser.html](https://samg-coder.github.io/stratum-hyperdetail/tests/browser.html). It asks your real adapter to compile shaders, create procedural cache pages, run the GPU sort/BVH/render path, train weights and test freezing. The results page prints actual measurements or errors.
 
 Performed here: all 18 entries translated with the bundled compiler; four source/runtime-contract tests passed; CPU reference tests checked BVH hits against exhaustive intersections on 200 rays, finite output and bounded cache reuse, and all 291 network gradients against finite differences. See [validation details](docs/VALIDATION.md) and the attached logs.
 
