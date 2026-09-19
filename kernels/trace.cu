@@ -220,11 +220,12 @@ __device__ float2 traceScene(const float* World,const float* Meta,const float* P
  float dx=CELL*fabsf(safeInv(rd.x));float dz=CELL*fabsf(safeInv(rd.z));
  for(int step=0;step<140;step++){
   if(!inCity(cx,cz)||t>best||t>bounds.y)break;
-  int wi=worldIndex(cx,cz);int slot=pageIndex(cx,cz);int m=slot*MS;
-  bool cached=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
-  // Residency is an acceleration hint, not a representation switch. Always evaluate the
-  // deterministic ray-time building first, then let the cached full-detail page refine it.
-  // This keeps silhouette/facade identity continuous while a page is generated or evicted.
+  int wi=worldIndex(cx,cz);int slot=-1;
+  // Dynamic page mapping is no longer direct-mapped by world coordinate. Search the small
+  // metadata table for the resident tag; the expensive BVH is only entered on a tag match.
+  for(int ps=0;ps<PAGES;ps++){int mb=ps*MS;if(Meta[mb+3]>0.5f&&(int)Meta[mb]==cx&&(int)Meta[mb+1]==cz){slot=ps;break;}}
+  bool cached=slot>=0;
+  // Residency is an acceleration hint, not a representation switch.
   float2 hit=macroHit(World,wi,ro,rd,best);
   float procedural=proceduralFacadeDepth(World,wi,ro,rd,hit.x);
   if(procedural<hit.x)hit=make_float2(procedural,(float)(-wi-2));
