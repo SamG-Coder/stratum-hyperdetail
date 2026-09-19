@@ -56,33 +56,9 @@ __global__ void stepCamera(float* C,const float* I,const float* World,float dt,i
 // Visibility and screen-space detail requests, one GPU thread per physical cache slot.
 __global__ void selectPages(const float* C,const float* World,const float* Meta,float* Req){
  int s=(int)(blockIdx.x*blockDim.x+threadIdx.x);if(s>=PAGES)return;int b=s*REQUESTS;
- // Dynamic view-priority cache: physical slots are mapped to a polar/frustum distribution
- // around the camera rather than a fixed 16x16 square. Near rings are dense; farther rings
- // widen with distance and remain centred on the current view direction.
- int camX=(int)floorf((C[0]+CELL*0.5f)/CELL),camZ=(int)floorf((C[2]+CELL*0.5f)/CELL);
- float3 cf=cameraForward(C),cr=cameraRight(C);
- int ring=s/32,lane=s%32;float ringDist=(float)ring*2.15f+1.0f;
- float lateral=((float)lane-15.5f)*0.58f*(1.0f+(float)ring*0.34f);
- float forward=ringDist+fabsf((float)lane-15.5f)*0.035f;
- float offx=cf.x*forward+cr.x*lateral,offz=cf.z*forward+cr.z*lateral;
- int cx=camX+(int)floorf(offx+(offx>=0.0f?0.5f:-0.5f));
- int cz=camZ+(int)floorf(offz+(offz>=0.0f?0.5f:-0.5f));
- // Reserve the first 32 slots for a tight camera neighbourhood so side/back inspection
- // cannot lose geometry merely because the view rotates.
- if(s<32){int ox=(s%8)-4,oz=(s/8)-2;cx=camX+ox;cz=camZ+oz;}
- Req[b]=(float)cx;Req[b+1]=(float)cz;Req[b+2]=0.0f;Req[b+3]=0.0f;Req[b+4]=0.0f;
- if(!inCity(cx,cz)||C[17]>0.5f)return;
- int w=worldIndex(cx,cz)*8;float h=World[w+2];float3 delta=make_float3((float)cx*CELL-C[0],h*0.5f-C[1],(float)cz*CELL-C[2]);
- float dist=fmaxf(1.0f,length3(delta)-23.0f);float z=dot3(delta,cf),xx=fabsf(dot3(delta,cr));
- float yy=fabsf(dot3(delta,cross3(cf,cr)));float aspect=C[20]>0.1f?C[20]:1.7778f;
- bool visible=(z+55.0f>0.0f&&xx<(fmaxf(z,0.0f)*0.60f*aspect+78.0f)&&yy<fmaxf(z,0.0f)*0.60f+70.0f)||dist<80.0f;
- if(!visible)return;
- float ppm=C[13]/(1.08f*dist);int m=s*MS;
- bool same=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
- Req[b+2]=5.0f;Req[b+4]=ppm;
- // Prioritise projected importance, then distance. A newly visible high-footprint building
- // beats a distant one even when both want the same bounded cache.
- if(!same)Req[b+3]=180.0f+ppm*42.0f+9000.0f/(dist+8.0f)+(s<32?90.0f:0.0f);
+ // Geometry pages are no longer a primary-render representation. Keep requests disabled:
+ // the whole 64x64 city is rendered from one deterministic procedural definition.
+ Req[b]=0.0f;Req[b+1]=0.0f;Req[b+2]=0.0f;Req[b+3]=0.0f;Req[b+4]=0.0f;
 }
 __global__ void schedulePages(const float* Req,int* Queue,float* Stats){
  if(blockIdx.x!=0||threadIdx.x!=0)return;
