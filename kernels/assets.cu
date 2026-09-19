@@ -1,7 +1,6 @@
 // Procedural asset compiler: each thread creates one spatial cluster of analytic geometry.
 // Primitive ABI: centre.xyz, shape, half-size.xyz, material, quarter-turn, seed,
 // reserved[2], then debug information. Empty slots have shape = -1.
-__device__ float featureHit(float3 ro,float3 rd,float3 cp,float3 h,int shape,int turn,float best);
 __device__ float2 sinkEmit(float* P,int base,int n,float3 p,float3 size,int shape,int material,int turn,float seed,int query,float3 ro,float3 rd,float best){
  if(n>=PER_CLUSTER)return make_float2((float)n,best);
  if(query!=0)return make_float2((float)(n+1),featureHit(ro,rd,p,size,shape,turn,best));
