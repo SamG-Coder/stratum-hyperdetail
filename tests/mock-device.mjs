@@ -12,7 +12,7 @@ export function mockDevice(){
   createBindGroupLayout(d){return d;},createPipelineLayout(d){return d;},async createComputePipelineAsync(d){return d;},
   createBindGroup(d){for(const e of d.entries){if(e.resource.buffer&&e.resource.size>e.resource.buffer.size)throw Error('Binding overflows buffer');}return d;},
   createCommandEncoder(){const commands=[];return{
-   beginComputePass(){return{setPipeline(p){calls.push(['pipeline',p.label]);},setBindGroup(){},dispatchWorkgroups(...groups){if(groups.some(v=>!Number.isInteger(v)||v<0||v>65535))throw Error('Invalid dispatch dimensions');calls.push(['dispatch',...groups]);},end(){}};},
+   beginComputePass(){return{setPipeline(p){calls.push(['pipeline',p.label]);},setBindGroup(){},dispatchWorkgroups(...groups){if(groups.some(v=>!Number.isInteger(v)||v<0||v>65535))throw Error('Invalid dispatch dimensions');calls.push(['dispatch',...groups]);},dispatchWorkgroupsIndirect(buffer,offset){if(offset%4||offset+12>buffer.size)throw Error('Bad indirect dispatch');calls.push(['indirect',offset]);},end(){}};},
    copyBufferToBuffer(a,ao,b,bo,size){commands.push(()=>{if(ao+size>a.size||bo+size>b.size)throw Error('Copy out of bounds');new Uint8Array(b.bytes,bo,size).set(new Uint8Array(a.bytes,ao,size));});},
    copyBufferToTexture(src,dst,size){if(src.bytesPerRow%256)throw Error('Unaligned texture row');if(src.buffer.size<src.bytesPerRow*size[1])throw Error('Texture source too small');calls.push(['present',...size]);},
    clearBuffer(b,o=0,size=b.size){commands.push(()=>new Uint8Array(b.bytes,o,size).fill(0));},finish(){return commands;}

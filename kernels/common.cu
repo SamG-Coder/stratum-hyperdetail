@@ -1,25 +1,29 @@
-// STRATUM — compute-streamed geometry. Distances are metres.
-// Supported CUDA C subset; this file is also compiled by the native test harness.
-#define CITY 64
+// STRATUM Infinite: one authored feature grammar, bounded acceleration, no proxy models.
 #define CELL 36.0f
-#define HALF_CITY 1152.0f
-#define CACHE_SIDE 16
-#define PAGES 256
+#define WORLD_SIDE 128
+#define WORLD_LOTS 16384
+#define LOT_FLOATS 16
 #define CLUSTERS 64
-#define PER_CLUSTER 32
-#define PRIMS 2048
-#define NODES 4096
-#define PS 16
-#define MS 12
-#define REQUESTS 8
-#define GENERATE_BUDGET 6
+#define GROUP_NODES 128
+#define MAX_FEATURES 64
+#define BUILD_CHUNK 2048
+#define BUILD_CHUNKS 8
+#define FAR 2000.0f
+#define SCENE_TOP 100.0f
+#define PI 3.141592653589793f
 #define NN_INPUTS 8
 #define NN_HIDDEN 24
 #define NN_PARAMS 291
-#define NN_BATCH 64
-#define NN_WS 64
-#define PI 3.141592653589793f
-#define FAR 30000.0f
+struct Lot {
+ float w; float d; float h; int type; int mat; int floors; float seed;
+ float storey; float roofScale; int turn; float ox; float oz; float palette;
+};
+struct Tag { unsigned int xl; unsigned int xh; unsigned int zl; unsigned int zh; };
+struct Feature { float3 p; float3 h; int shape; int material; int turn; float seed; };
+struct Sink {
+ int mode; int count; int target; float t; float3 ro; float3 rd;
+ float3 lo; float3 hi; Feature feature; int fid; float pixelCone; float roofBase; float roofScale;
+};
 __device__ float clampf(float x,float a,float b){return fminf(b,fmaxf(a,x));}
 __device__ float sat(float x){return clampf(x,0.0f,1.0f);}
 __device__ float lerpf(float a,float b,float t){return a+(b-a)*t;}
@@ -51,15 +55,17 @@ __device__ float3 cameraForward(const float* C){return make_float3(sinf(C[3])*co
 __device__ float3 cameraRight(const float* C){return make_float3(cosf(C[3]),0.0f,-sinf(C[3]));}
 __device__ float3 cameraPosition(const float* C){return make_float3(C[0],C[1],C[2]);}
 __device__ float3 sunDirection(const float* C){return norm3(make_float3(cosf(C[7])*cosf(C[8]),sinf(C[8]),sinf(C[7])*cosf(C[8])));}
+__device__ float radicalInverse(int value,int base){
+ float inv=1.0f/(float)base,place=inv,result=0.0f;
+ for(int j=0;j<12;j++){if(value<=0)break;result+=(float)(value%base)*place;value/=base;place*=inv;}
+ return result;
+}
 __device__ float3 rayDirection(const float* C,int x,int y,int width,int height){
- // Low-discrepancy sub-pixel sequence. Avoid the old two irrational multiples of frame
- // number, whose correlated motion was visible as diagonal crawling/jitter in fine facades.
- float jitterX=0.0f;float jitterY=0.0f;
- if(C[15]<0.5f){int fi=(int)C[6];unsigned int hx=hashU((unsigned int)(fi*2+1));unsigned int hy=hashU((unsigned int)(fi*2+2));
-  jitterX=((float)(hx&65535u)/65536.0f)-0.5f;jitterY=((float)(hy&65535u)/65536.0f)-0.5f;}
- float sx=((float)x+0.5f+jitterX-(float)width*0.5f)/(float)height*1.08f;
- float sy=-((float)y+0.5f+jitterY-(float)height*0.5f)/(float)height*1.08f;
- float3 f=cameraForward(C);float3 r=cameraRight(C);float3 u=cross3(f,r);
+ int sample=(int)C[19]-1;float jx=0.0f,jy=0.0f;
+ if(sample>0){jx=radicalInverse(sample,2)-0.5f;jy=radicalInverse(sample,3)-0.5f;}
+ float sx=((float)x+0.5f+jx-(float)width*0.5f)/(float)height*1.08f;
+ float sy=-((float)y+0.5f+jy-(float)height*0.5f)/(float)height*1.08f;
+ float3 f=cameraForward(C),r=cameraRight(C),u=cross3(f,r);
  return norm3(f+r*sx+u*sy);
 }
 __device__ float safeInv(float d){return 1.0f/(fabsf(d)>0.0000001f?d:(d<0.0f?-0.0000001f:0.0000001f));}
@@ -69,23 +75,6 @@ __device__ float2 boxRange(float3 ro,float3 rd,float3 lo,float3 hi){
  float3 mn=min3(a,b);float3 mx=max3(a,b);
  return make_float2(fmaxf(fmaxf(mn.x,mn.y),mn.z),fminf(fminf(mx.x,mx.y),mx.z));
 }
-// Generic analytic feature intersection used by BOTH the page writer and direct authored
-// ray-query sink. This is intentionally independent of cache/page storage.
-__device__ float featureHit(float3 ro,float3 rd,float3 cp,float3 h,int shape,int turn,float best){
- float3 p=ro-cp,d=rd;if(turn%2==1){p=make_float3(p.z,p.y,-p.x);d=make_float3(d.z,d.y,-d.x);}
- float3 lo=h*-1.0f,hi=h;if(shape==3||shape==4||shape==7)lo=make_float3(-h.x,0.0f,-h.z);
- float2 range=boxRange(p,d,lo,hi);if(range.y<fmaxf(0.001f,range.x))return best;float t=range.x>0.001f?range.x:range.y;
- if(shape==1){float3 a=make_float3(p.x/h.x,p.y/h.y,p.z/h.z),v=make_float3(d.x/h.x,d.y/h.y,d.z/h.z);float aa=dot3(v,v),bb=dot3(a,v),cc=dot3(a,a)-1.0f,disc=bb*bb-aa*cc;if(disc<0.0f)return best;t=(-bb-sqrtf(disc))/aa;if(t<=0.001f)t=(-bb+sqrtf(disc))/aa;}
- if(shape==2){float aa=d.x*d.x/(h.x*h.x)+d.z*d.z/(h.z*h.z),bb=p.x*d.x/(h.x*h.x)+p.z*d.z/(h.z*h.z),cc=p.x*p.x/(h.x*h.x)+p.z*p.z/(h.z*h.z)-1.0f,q=FAR,disc=bb*bb-aa*cc;
-  if(disc>=0.0f&&aa>0.0000001f){float r=sqrtf(disc),u=(-bb-r)/aa,v=(-bb+r)/aa;if(u>0.001f&&fabsf(p.y+d.y*u)<=h.y)q=u;if(v>0.001f&&fabsf(p.y+d.y*v)<=h.y)q=fminf(q,v);}t=q;}
- if(shape==3){float near=fmaxf(0.001f,range.x),far=range.y;for(int k=0;k<2;k++){float sign=k==0?1.0f:-1.0f,numer=h.y-(p.y+sign*p.x*h.y/h.x),denom=d.y+sign*d.x*h.y/h.x;if(fabsf(denom)<0.000001f){if(numer<0.0f)return best;}else{float u=numer/denom;if(denom>0.0f)far=fminf(far,u);else near=fmaxf(near,u);}}if(far<near)return best;t=near;}
- if(shape==4||shape==7){float q=FAR,aa=d.x*d.x/(h.x*h.x)+d.y*d.y/(h.y*h.y),bb=p.x*d.x/(h.x*h.x)+p.y*d.y/(h.y*h.y);
-  for(int ring=0;ring<2;ring++){float rad=ring==0?1.0f:0.77f,cc=p.x*p.x/(h.x*h.x)+p.y*p.y/(h.y*h.y)-rad*rad,disc=bb*bb-aa*cc;if(disc>=0.0f&&aa>0.000001f){float r=sqrtf(disc);for(int k=0;k<2;k++){float u=(-bb+(k==0?-r:r))/aa;if(u>0.001f&&fabsf(p.z+d.z*u)<=h.z&&(shape==7||p.y+d.y*u>=0.0f))q=fminf(q,u);}}}t=q;}
- return t>0.001f&&t<best?t:best;
-}
-__device__ int worldIndex(int cx,int cz){return (cz+CITY/2)*CITY+cx+CITY/2;}
-__device__ int pageIndex(int cx,int cz){return imod(cz,CACHE_SIDE)*CACHE_SIDE+imod(cx,CACHE_SIDE);}
-__device__ bool inCity(int cx,int cz){return cx>=-CITY/2&&cx<CITY/2&&cz>=-CITY/2&&cz<CITY/2;}
 __device__ float2 masonryUV(float3 p,float3 n){return fabsf(n.y)>0.5f?make_float2(p.x,p.z):(fabsf(n.x)>0.5f?make_float2(p.z,p.y):make_float2(p.x,p.y));}
 // Bounded geometric relief. Fine pores are shading detail; masonry joints are actual relief.
 __device__ float masonryHeight(float u,float v,int material){

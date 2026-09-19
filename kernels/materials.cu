@@ -8,23 +8,6 @@ __device__ float3 substrate(float u,float v,float seed,int material){
  float age=0.61f+0.52f*large;float damp=smoothf(0.49f,0.76f,run)*0.31f;
  return base*(age-damp)+make_float3(0.017f,0.024f,0.014f)*damp;
 }
-__device__ float feature(int i,float u,float v,float seed,int mat){
- if(i==0)return sinf(u*0.13f);
- if(i==1)return cosf(u*0.13f);
- if(i==2)return sinf(v*0.13f);
- if(i==3)return cosf(v*0.13f);
- if(i==4)return noise2(u*0.31f+seed*0.013f,v*0.31f)*2.0f-1.0f;
- if(i==5)return noise2(u*0.42f+seed*0.01f,v*0.038f+1.7f)*2.0f-1.0f;
- if(i==6)return (float)mat*2.0f-1.0f;
- return sinf(seed*0.03f);
-}
-__device__ float activate(float x){x=clampf(x,-8.0f,8.0f);return 2.0f/(1.0f+expf(-2.0f*x))-1.0f;}
-__device__ float3 predictSubstrate(const float* W,float u,float v,float seed,int mat){
- float hidden[24];for(int h=0;h<NN_HIDDEN;h++){float z=W[192+h];for(int j=0;j<NN_INPUTS;j++)z+=W[h*8+j]*feature(j,u,v,seed,mat);hidden[h]=activate(z);}
- float3 out=make_float3(W[288],W[289],W[290]);
- for(int h=0;h<24;h++){out.x+=W[216+h]*hidden[h];out.y+=W[240+h]*hidden[h];out.z+=W[264+h]*hidden[h];}
- return make_float3(sat(out.x),sat(out.y),sat(out.z));
-}
 __device__ float3 sky(float3 rd,float3 sun){
  float elev=sat(rd.y);float3 c=mix3(make_float3(0.62f,0.69f,0.72f),make_float3(0.13f,0.30f,0.52f),powf(elev,0.45f));
  float sd=fmaxf(0.0f,dot3(rd,sun));c=c+make_float3(1.1f,0.62f,0.22f)*powf(sd,18.0f)+make_float3(9.0f,6.0f,3.2f)*powf(sd,2600.0f);
@@ -57,7 +40,7 @@ __device__ float3 surfaceColor(float3 p,float3 n,int mat,float seed,float footpr
   float joint=(1.0f-smoothf(0.005f,0.021f+footprint*0.4f,edge))*frequencyWeight(footprint,1.0f/bh);
   float variation=(hash2(brick,row,(int)seed)-0.5f)*0.19f*frequencyWeight(footprint,1.0f/bh);
   c=c*(1.0f+variation);c=mix3(c,make_float3(0.25f,0.245f,0.21f),joint*0.84f);
-  float pores=fbm2(u*52.0f+seed,v*52.0f);c=c*(1.0f+(pores-0.5f)*0.38f*fine);
+  float pores=fine>0.0f?fbm2(u*52.0f+seed,v*52.0f):0.5f;c=c*(1.0f+(pores-0.5f)*0.38f*fine);
   float deposits=smoothf(0.45f,0.76f,fbm2(u*5.1f+seed*0.3f,v*6.2f));
   c=mix3(c,make_float3(0.52f,0.49f,0.39f),deposits*0.23f*(1.0f-joint));
   if(footprint<0.007f){
@@ -79,7 +62,7 @@ __device__ float3 surfaceColor(float3 p,float3 n,int mat,float seed,float footpr
  else if(mat==2||mat==14){
   c=mat==2?make_float3(0.14f,0.19f,0.22f):make_float3(0.38f,0.125f,0.048f);
   float tile=fractf(u*3.7f);float row=fractf(v*4.4f);float seam=(1.0f-smoothf(0.01f,0.07f,tile))+(1.0f-smoothf(0.02f,0.11f,row));
-  c=c*(0.78f+0.26f*noise2(u*7.2f,v*7.2f)-sat(seam)*0.25f*frequencyWeight(footprint,4.4f));
+  c=c*(0.78f+0.26f*lerpf(0.5f,noise2(u*7.2f,v*7.2f),frequencyWeight(footprint,7.2f))-sat(seam)*0.25f*frequencyWeight(footprint,4.4f));
  }
  else if(mat==3){float patina=smoothf(0.28f,0.64f,fbm2(u*2.1f,v*2.1f));c=mix3(make_float3(0.27f,0.145f,0.072f),make_float3(0.085f,0.24f,0.18f),patina);float seam=1.0f-smoothf(0.015f,0.07f,fractf(u*1.8f));c=c*(1.0f-seam*0.4f*frequencyWeight(footprint,1.8f));}
  else if(mat==4)c=make_float3(0.045f,0.084f,0.093f);
@@ -88,7 +71,7 @@ __device__ float3 surfaceColor(float3 p,float3 n,int mat,float seed,float footpr
  else if(mat==7){float leaves=fbm2(p.x*8.0f+p.y*6.0f,p.z*8.0f);c=mix3(make_float3(0.055f,0.095f,0.020f),make_float3(0.18f,0.25f,0.055f),leaves);}
  else if(mat==8)c=make_float3(0.70f,0.43f,0.13f);
  else if(mat==9)c=make_float3(0.035f,0.115f,0.12f);
- else if(mat==10){float grit=fbm2(u*45.0f,v*45.0f);c=make_float3(0.16f,0.17f,0.16f)*(0.72f+grit*0.4f);}
+ else if(mat==10){float grit=lerpf(0.5f,fbm2(u*45.0f,v*45.0f),frequencyWeight(footprint,45.0f));c=make_float3(0.16f,0.17f,0.16f)*(0.72f+grit*0.4f);}
  else if(mat==11){int row=(int)floorf(v/0.45f);float a=fractf(u/0.9f+(float)imod(row,2)*0.5f);float b=fractf(v/0.45f);float joint=(1.0f-smoothf(0.02f,0.07f+footprint, fminf(fminf(a,1.0f-a),fminf(b,1.0f-b))));c=make_float3(0.43f,0.415f,0.36f)*(0.78f+fbm2(u*18.0f,v*18.0f)*0.3f);c=c*(1.0f-joint*0.30f*frequencyWeight(footprint,2.0f));}
  else if(mat==13)c=make_float3(0.54f,0.475f,0.35f)*(0.82f+fbm2(u*1.6f,v*1.6f)*0.24f);
  else if(mat==15)c=make_float3(0.17f,0.12f,0.065f)*(0.65f+0.6f*fbm2(u*31.0f,v*3.0f));

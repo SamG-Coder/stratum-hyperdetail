@@ -1,0 +1,75 @@
+
+> stratum-infinite-hyperdetail@0.2.0 pretest
+> npm run build
+
+
+> stratum-infinite-hyperdetail@0.2.0 build
+> node tools/compile.mjs
+
+OK initCamera | 2 buffers | 18228 WGSL bytes
+OK stepCamera | 3 buffers | 25015 WGSL bytes
+OK clearQueue | 1 buffers | 17421 WGSL bytes
+OK prepareLots | 5 buffers | 21502 WGSL bytes
+OK planBounds | 2 buffers | 18287 WGSL bytes
+OK buildGroupBounds | 3 buffers | 151976 WGSL bytes
+OK reduceGroupBounds | 2 buffers | 148932 WGSL bytes
+OK tracePrimary | 6 buffers | 165963 WGSL bytes
+OK shadePixels | 6 buffers | 69388 WGSL bytes
+OK resolveFrame | 6 buffers | 51815 WGSL bytes
+OK probeGrammar | 2 buffers | 153107 WGSL bytes
+
+> stratum-infinite-hyperdetail@0.2.0 test
+> node --test tests/*.test.mjs && node tools/native-test.mjs
+
+TAP version 13
+# Subtest: every shipped shader matches authored CUDA and portable binding/scratch budgets
+ok 1 - every shipped shader matches authored CUDA and portable binding/scratch budgets
+  ---
+  duration_ms: 1020.168613
+  type: 'test'
+  ...
+# Subtest: acceleration stores bounds, not per-building primitive pages; no macro model switch
+ok 2 - acceleration stores bounds, not per-building primitive pages; no macro model switch
+  ---
+  duration_ms: 3.703264
+  type: 'test'
+  ...
+# Subtest: runtime bindings, bounded tiles, indirect work and presentation contract
+ok 3 - runtime bindings, bounded tiles, indirect work and presentation contract
+  ---
+  duration_ms: 20.979363
+  type: 'test'
+  ...
+# Subtest: both query and conservative bounds use one feature grammar with no store capacity truncation
+ok 4 - both query and conservative bounds use one feature grammar with no store capacity truncation
+  ---
+  duration_ms: 4.857488
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1153.674486
+Original feature records compared: 13857; maximum group size: 56
+PASS exact original geometry/material/seed identity and unclipped hyperdetail additions
+Bounds vs exhaustive queries: 2304; hits 1952; max distance difference 0
+PASS accelerated queries agree with exhaustive exact features across all families
+PASS cylinder top cap is not lost
+PASS full ring retains lower half and front cap
+PASS 64-bit negative coordinate borrow
+PASS 64-bit positive carry
+PASS revisiting a distant coordinate reconstructs the same lot
+PASS floating origin rebases without a finite city boundary
+PASS stationary 64-sample sequence converges and stops jittering
+PASS seeded architectural and district palette variation
+ALL NATIVE CHECKS PASSED
+
+> stratum-infinite-hyperdetail@0.2.0 pages
+> node tools/pages.mjs
+
+Static WebGPU application copied to dist/. Serve over HTTPS.

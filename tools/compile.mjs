@@ -1,23 +1,27 @@
 import fs from 'node:fs/promises';
 import {compile} from '../vendor/cuda-webshader/compiler/compiler.js';
 const root=new URL('../',import.meta.url);
-const files=['common','world','assets','cache','trace','materials','learning','shade'];
-const groups={world:{initWorld:64,stepCamera:1,selectPages:64,schedulePages:1,commitPages:64,summarise:1},assets:{generatePages:64},cache:{sortPages:256,buildBVH:64},trace:{tracePrimary:[8,8,1]},learning:{initNeural:64,prepareMaterialBatch:64,materialForward:64,scoreMaterial:1,materialGradient:64,materialAdam:64},shade:{shadePixels:[8,8,1],resolveFrame:[8,8,1]}};
-const text=Object.fromEntries(await Promise.all(files.map(async f=>[f,await fs.readFile(new URL(`kernels/${f}.cu`,root),'utf8')])));
-// Select dependencies explicitly; the bundled compiler emits all declared device helpers.
-const dependencies={world:['common','world'],assets:['common','assets'],cache:['common','cache'],trace:['common','assets','trace'],learning:['common','assets','trace','materials','learning'],shade:['common','assets','trace','materials','shade']};
-await fs.mkdir(new URL('generated/',root),{recursive:true});const manifest=[];let failed=0;
-for(const [file,entries]of Object.entries(groups))for(const [entry,block]of Object.entries(entries)){
- const workgroupSize=Array.isArray(block)?block:[block,1,1];
+const units=['common','world','geometry','sink','assets','accel','trace','materials','shade','probe'];
+const rules={
+ initCamera:['world',[1,1,1]],stepCamera:['world',[1,1,1]],clearQueue:['world',[1,1,1]],prepareLots:['world',[64,1,1]],planBounds:['world',[8,1,1]],
+ buildGroupBounds:['accel',[64,1,1]],reduceGroupBounds:['accel',[64,1,1]],tracePrimary:['trace',[8,8,1]],shadePixels:['shade',[8,8,1]],resolveFrame:['shade',[8,8,1]],probeGrammar:['probe',[1,1,1]],
+};
+const dependencies={world:['common','world'],accel:['common','world','geometry','sink','assets','accel'],trace:['common','world','geometry','sink','assets','trace'],shade:['common','world','materials','shade'],probe:['common','world','geometry','sink','assets','probe']};
+const texts=Object.fromEntries(await Promise.all(units.map(async n=>[n,await fs.readFile(new URL('kernels/'+n+'.cu',root),'utf8')])));
+const stage=new URL('.build-generated/',root);await fs.rm(stage,{recursive:true,force:true});await fs.mkdir(stage,{recursive:true});
+const manifest=[];const failures=[];
+for(const [entry,[unit,workgroupSize]] of Object.entries(rules)){
  try{
-  const source=dependencies[file].map(f=>text[f]).join('\n');
-  const artifact=compile(source,{entry,workgroupSize});const {ast,kernel,...portable}=artifact;
-  await fs.writeFile(new URL(`generated/${entry}.json`,root),JSON.stringify(portable));
-  await fs.writeFile(new URL(`generated/${entry}.wgsl`,root),artifact.wgsl);
-  manifest.push({entry,file,workgroupSize,dependencies:dependencies[file],bindings:artifact.metadata.bindings.map(x=>x.name),uniformBytes:artifact.metadata.uniformSize});
-  console.log(`OK ${entry}: ${artifact.wgsl.length} WGSL bytes, ${artifact.metadata.bindings.length} buffers`);
- }catch(e){console.error(`FAILED ${entry}: ${e.stack||e.message}`);failed++;}
+  const deps=dependencies[unit],artifact=compile(deps.map(n=>texts[n]).join('\n'),{entry,workgroupSize});
+  if(artifact.metadata.bindings.length>8)throw Error('More than eight storage buffers');
+  if(artifact.metadata.workgroupStorageBytes>16384)throw Error('Workgroup scratch exceeds portable 16 KiB budget');
+  const {ast,kernel,...portable}=artifact;
+  await fs.writeFile(new URL(entry+'.json',stage),JSON.stringify(portable));await fs.writeFile(new URL(entry+'.wgsl',stage),artifact.wgsl);
+  manifest.push({entry,file:unit,workgroupSize,dependencies:deps,bindings:artifact.metadata.bindings.map(b=>b.name),uniformBytes:artifact.metadata.uniformSize});
+  console.log('OK '+entry+' | '+artifact.metadata.bindings.length+' buffers | '+artifact.wgsl.length+' WGSL bytes');
+ }catch(e){failures.push(entry);console.error('FAILED '+entry+': '+(e.stack||e));}
 }
-await fs.writeFile(new URL('generated/manifest.json',root),JSON.stringify(manifest,null,2));
-await fs.writeFile(new URL('Stratum.cu',root),'// Generated combined CUDA source. Rebuild split kernels with npm run build.\n'+files.map(f=>`\n// ===== ${f.toUpperCase()} =====\n${text[f]}`).join('\n'));
-if(failed)process.exitCode=1;
+if(failures.length){await fs.rm(stage,{recursive:true,force:true});throw Error('Build failed; previous generated artifacts retained: '+failures.join(', '));}
+await fs.writeFile(new URL('manifest.json',stage),JSON.stringify(manifest,null,2));
+await fs.rm(new URL('generated/',root),{recursive:true,force:true});await fs.rename(stage,new URL('generated/',root));
+await fs.writeFile(new URL('Stratum.cu',root),'// Combined authored CUDA; build from split sources.\n'+units.map(n=>'\n// ===== '+n+' =====\n'+texts[n]).join('\n'));

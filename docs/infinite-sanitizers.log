@@ -1,0 +1,13 @@
+Original feature records compared: 13857; maximum group size: 56
+PASS exact original geometry/material/seed identity and unclipped hyperdetail additions
+Bounds vs exhaustive queries: 2304; hits 1952; max distance difference 0
+PASS accelerated queries agree with exhaustive exact features across all families
+PASS cylinder top cap is not lost
+PASS full ring retains lower half and front cap
+PASS 64-bit negative coordinate borrow
+PASS 64-bit positive carry
+PASS revisiting a distant coordinate reconstructs the same lot
+PASS floating origin rebases without a finite city boundary
+PASS stationary 64-sample sequence converges and stops jittering
+PASS seeded architectural and district palette variation
+ALL NATIVE CHECKS PASSED
