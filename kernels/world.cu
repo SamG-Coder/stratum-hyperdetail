@@ -64,8 +64,9 @@ __global__ void selectPages(const float* C,const float* World,const float* Meta,
  int ring=s/32,lane=s%32;float ringDist=(float)ring*2.15f+1.0f;
  float lateral=((float)lane-15.5f)*0.58f*(1.0f+(float)ring*0.34f);
  float forward=ringDist+fabsf((float)lane-15.5f)*0.035f;
- int cx=camX+(int)floorf(cf.x*forward+cr.x*lateral+(cf.x*forward+cr.x*lateral>=0.0f?0.5f:-0.5f));
- int cz=camZ+(int)floorf(cf.z*forward+cr.z*lateral+(cf.z*forward+cr.z*lateral>=0.0f?0.5f:-0.5f));
+ float offx=cf.x*forward+cr.x*lateral,offz=cf.z*forward+cr.z*lateral;
+ int cx=camX+(int)floorf(offx+(offx>=0.0f?0.5f:-0.5f));
+ int cz=camZ+(int)floorf(offz+(offz>=0.0f?0.5f:-0.5f));
  // Reserve the first 32 slots for a tight camera neighbourhood so side/back inspection
  // cannot lose geometry merely because the view rotates.
  if(s<32){int ox=(s%8)-4,oz=(s/8)-2;cx=camX+ox;cz=camZ+oz;}
