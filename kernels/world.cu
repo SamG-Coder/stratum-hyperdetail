@@ -56,20 +56,8 @@ __global__ void stepCamera(float* C,const float* I,const float* World,float dt,i
 // Visibility and screen-space detail requests, one GPU thread per physical cache slot.
 __global__ void selectPages(const float* C,const float* World,const float* Meta,float* Req){
  int s=(int)(blockIdx.x*blockDim.x+threadIdx.x);if(s>=PAGES)return;int b=s*REQUESTS;
- // Stable 16x16 materialisation window. The authored full-detail page is the canonical
- // representation; ray-time procedural evaluation is only a far-field continuity fallback.
- float3 cf=cameraForward(C);int lookX=(int)floorf((C[0]+cf.x*CELL*3.0f+CELL*0.5f)/CELL);
- int lookZ=(int)floorf((C[2]+cf.z*CELL*3.0f+CELL*0.5f)/CELL);
- int ax=lookX-CACHE_SIDE/2,az=lookZ-CACHE_SIDE/2;
- int cx=ax+imod(s%CACHE_SIDE-imod(ax,CACHE_SIDE),CACHE_SIDE);
- int cz=az+imod(s/CACHE_SIDE-imod(az,CACHE_SIDE),CACHE_SIDE);
- Req[b]=(float)cx;Req[b+1]=(float)cz;Req[b+2]=0.0f;Req[b+3]=0.0f;Req[b+4]=0.0f;
- if(!inCity(cx,cz)||C[17]>0.5f)return;
- int w=worldIndex(cx,cz)*8;float h=World[w+2];float3 delta=make_float3((float)cx*CELL-C[0],h*0.5f-C[1],(float)cz*CELL-C[2]);
- float dist=fmaxf(1.0f,length3(delta)-23.0f),ppm=C[13]/(1.08f*dist);
- int m=s*MS;bool same=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
- Req[b+2]=5.0f;Req[b+4]=ppm;
- if(!same)Req[b+3]=200.0f+ppm*45.0f+10000.0f/(dist+5.0f);
+ // Direct authored ray-query mode: no building is selected into a different representation.
+ Req[b]=0.0f;Req[b+1]=0.0f;Req[b+2]=0.0f;Req[b+3]=0.0f;Req[b+4]=0.0f;
 }
 __global__ void schedulePages(const float* Req,int* Queue,float* Stats){
  if(blockIdx.x!=0||threadIdx.x!=0)return;
