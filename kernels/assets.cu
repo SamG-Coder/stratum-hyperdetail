@@ -24,7 +24,7 @@ __device__ float authoredGroup(const float* World,int cx,int cz,int lod,int grou
    n=sinkEmit(P,base,n,make_float3(x,1.25f,z+5.0f),make_float3(18.0f,0.2f,0.23f),0,0,0,seed,query,ro,rd,best);
    for(int k=0;k<12;k++){float u=-16.5f+(float)k*3.0f;n=sinkEmit(P,base,n,make_float3(x+u,0.8f,z-5.0f),make_float3(0.12f,0.6f,0.12f),2,6,0,seed,query,ro,rd,best);n=sinkEmit(P,base,n,make_float3(x+u,0.8f,z+5.0f),make_float3(0.12f,0.6f,0.12f),2,6,0,seed,query,ro,rd,best);}
   }
-  return;
+  return hit;
  }
  if(type==3){
   if(group==0)n=sinkEmit(P,base,n,make_float3(x,-0.12f,z),make_float3(15.5f,0.22f,15.5f),0,11,0,seed,query,ro,rd,best);
@@ -45,7 +45,7 @@ __device__ float authoredGroup(const float* World,int cx,int cz,int lod,int grou
    n=sinkEmit(P,base,n,make_float3(x,2.85f,z),make_float3(1.4f,0.18f,1.4f),2,13,0,seed,query,ro,rd,best);
    n=sinkEmit(P,base,n,make_float3(x,3.15f,z),make_float3(0.5f,0.5f,0.5f),1,3,0,seed,query,ro,rd,best);
   }
-  return;
+  return hit;
  }
  if(group==0){
   n=sinkEmit(P,base,n,make_float3(x,0.15f,z),make_float3(w+1.1f,0.25f,d+1.1f),0,0,0,seed,query,ro,rd,best);
@@ -100,7 +100,7 @@ __device__ float authoredGroup(const float* World,int cx,int cz,int lod,int grou
   if(lod>=3)for(int j=0;j<8;j++){float u=((float)j-3.5f)*(ext/4.0f);n=sinkWall(P,base,n,face,x,z,w,d,u,h-0.24f,0.4f,0.15f,0.12f,0.19f,13,seed,query,ro,rd,best);}
  }
  if(group>=6&&group<30){
-  int face=(group-6)/6;int row=(group-6)%6;if(row>=floors)return;
+  int face=(group-6)/6;int row=(group-6)%6;if(row>=floors)return hit;
   float ext=face%2==0?w:d;float y=6.1f+(float)row*3.8f;
   for(int j=0;j<4;j++){
    float u=((float)j-1.5f)*(ext*0.48f);float wy=1.2f;
@@ -158,7 +158,7 @@ __device__ float authoredGroup(const float* World,int cx,int cz,int lod,int grou
  }
 
  if(group>=32&&group<56&&lod>=2){
-  int face=(group-32)/6;int row=(group-32)%6;if(row>=floors)return;
+  int face=(group-32)/6;int row=(group-32)%6;if(row>=floors)return hit;
   float ext=face%2==0?w:d;float y=6.1f+(float)row*3.8f;
   for(int j=0;j<4;j++){
    float u=((float)j-1.5f)*(ext*0.48f);
