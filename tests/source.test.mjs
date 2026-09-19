@@ -19,3 +19,10 @@ test('runtime bindings, bounded tiles, indirect work and presentation contract',
 test('both query and conservative bounds use one feature grammar with no store capacity truncation',async()=>{
  const assets=await fs.readFile(new URL('kernels/assets.cu',root),'utf8'),sink=await fs.readFile(new URL('kernels/sink.cu',root),'utf8');assert.match(assets,/Sink authoredGroup/);assert.match(sink,/s\.mode==1/);assert.match(sink,/featureHit\(f,/);assert.doesNotMatch(sink,/n>=PER_CLUSTER|count>=32/);
 });
+
+test('production runtime boots from CUDA sources rather than generated shader artifacts',async()=>{
+ const engine=await fs.readFile(new URL('src/engine.js',root),'utf8'),pages=await fs.readFile(new URL('tools/pages.mjs',root),'utf8');
+ assert.match(engine,/CUDA → WebGPU/);assert.match(engine,/compiler\/compiler\.js/);assert.match(engine,/kernels\/.*\.cu/);
+ assert.doesNotMatch(engine,/generated\/manifest\.json/);assert.doesNotMatch(engine,/generated\/.*\.json/);
+ assert.doesNotMatch(pages,/['"]generated['"]/);assert.match(pages,/generated\/ is intentionally not deployed/);
+});
