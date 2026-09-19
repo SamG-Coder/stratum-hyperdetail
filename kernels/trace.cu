@@ -220,16 +220,13 @@ __device__ float2 traceScene(const float* World,const float* Meta,const float* P
  float dx=CELL*fabsf(safeInv(rd.x));float dz=CELL*fabsf(safeInv(rd.z));
  for(int step=0;step<140;step++){
   if(!inCity(cx,cz)||t>best||t>bounds.y)break;
-  int wi=worldIndex(cx,cz);int slot=-1;
-  // Dynamic page mapping is no longer direct-mapped by world coordinate. Search the small
-  // metadata table for the resident tag; the expensive BVH is only entered on a tag match.
-  for(int ps=0;ps<PAGES;ps++){int mb=ps*MS;if(Meta[mb+3]>0.5f&&(int)Meta[mb]==cx&&(int)Meta[mb+1]==cz){slot=ps;break;}}
-  bool cached=slot>=0;
-  // Residency is an acceleration hint, not a representation switch.
+  int wi=worldIndex(cx,cz);
+  // ONE representation for the whole city. Every lot is intersected from its deterministic
+  // procedural definition. Cache residency is deliberately ignored by primary visibility:
+  // no page can swap a building to a different geometric model.
   float2 hit=macroHit(World,wi,ro,rd,best);
   float procedural=proceduralFacadeDepth(World,wi,ro,rd,hit.x);
   if(procedural<hit.x)hit=make_float2(procedural,(float)(-wi-2));
-  if(cached){float2 fine=pageHit(P,Nodes,Order,slot,ro,rd,hit.x);if(fine.x<hit.x)hit=fine;}
   if(hit.x<best){best=hit.x;found=(int)hit.y;}
   if(tx<tz){t=tx;tx+=dx;cx+=sx;}else{t=tz;tz+=dz;cz+=sz;}
  }
