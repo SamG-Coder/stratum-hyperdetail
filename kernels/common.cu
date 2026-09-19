@@ -69,6 +69,20 @@ __device__ float2 boxRange(float3 ro,float3 rd,float3 lo,float3 hi){
  float3 mn=min3(a,b);float3 mx=max3(a,b);
  return make_float2(fmaxf(fmaxf(mn.x,mn.y),mn.z),fminf(fminf(mx.x,mx.y),mx.z));
 }
+// Generic analytic feature intersection used by BOTH the page writer and direct authored
+// ray-query sink. This is intentionally independent of cache/page storage.
+__device__ float featureHit(float3 ro,float3 rd,float3 cp,float3 h,int shape,int turn,float best){
+ float3 p=ro-cp,d=rd;if(turn%2==1){p=make_float3(p.z,p.y,-p.x);d=make_float3(d.z,d.y,-d.x);}
+ float3 lo=h*-1.0f,hi=h;if(shape==3||shape==4||shape==7)lo=make_float3(-h.x,0.0f,-h.z);
+ float2 range=boxRange(p,d,lo,hi);if(range.y<fmaxf(0.001f,range.x))return best;float t=range.x>0.001f?range.x:range.y;
+ if(shape==1){float3 a=make_float3(p.x/h.x,p.y/h.y,p.z/h.z),v=make_float3(d.x/h.x,d.y/h.y,d.z/h.z);float aa=dot3(v,v),bb=dot3(a,v),cc=dot3(a,a)-1.0f,disc=bb*bb-aa*cc;if(disc<0.0f)return best;t=(-bb-sqrtf(disc))/aa;if(t<=0.001f)t=(-bb+sqrtf(disc))/aa;}
+ if(shape==2){float aa=d.x*d.x/(h.x*h.x)+d.z*d.z/(h.z*h.z),bb=p.x*d.x/(h.x*h.x)+p.z*d.z/(h.z*h.z),cc=p.x*p.x/(h.x*h.x)+p.z*p.z/(h.z*h.z)-1.0f,q=FAR,disc=bb*bb-aa*cc;
+  if(disc>=0.0f&&aa>0.0000001f){float r=sqrtf(disc),u=(-bb-r)/aa,v=(-bb+r)/aa;if(u>0.001f&&fabsf(p.y+d.y*u)<=h.y)q=u;if(v>0.001f&&fabsf(p.y+d.y*v)<=h.y)q=fminf(q,v);}t=q;}
+ if(shape==3){float near=fmaxf(0.001f,range.x),far=range.y;for(int k=0;k<2;k++){float sign=k==0?1.0f:-1.0f,numer=h.y-(p.y+sign*p.x*h.y/h.x),denom=d.y+sign*d.x*h.y/h.x;if(fabsf(denom)<0.000001f){if(numer<0.0f)return best;}else{float u=numer/denom;if(denom>0.0f)far=fminf(far,u);else near=fmaxf(near,u);}}if(far<near)return best;t=near;}
+ if(shape==4||shape==7){float q=FAR,aa=d.x*d.x/(h.x*h.x)+d.y*d.y/(h.y*h.y),bb=p.x*d.x/(h.x*h.x)+p.y*d.y/(h.y*h.y);
+  for(int ring=0;ring<2;ring++){float rad=ring==0?1.0f:0.77f,cc=p.x*p.x/(h.x*h.x)+p.y*p.y/(h.y*h.y)-rad*rad,disc=bb*bb-aa*cc;if(disc>=0.0f&&aa>0.000001f){float r=sqrtf(disc);for(int k=0;k<2;k++){float u=(-bb+(k==0?-r:r))/aa;if(u>0.001f&&fabsf(p.z+d.z*u)<=h.z&&(shape==7||p.y+d.y*u>=0.0f))q=fminf(q,u);}}}t=q;}
+ return t>0.001f&&t<best?t:best;
+}
 __device__ int worldIndex(int cx,int cz){return (cz+CITY/2)*CITY+cx+CITY/2;}
 __device__ int pageIndex(int cx,int cz){return imod(cz,CACHE_SIDE)*CACHE_SIDE+imod(cx,CACHE_SIDE);}
 __device__ bool inCity(int cx,int cz){return cx>=-CITY/2&&cx<CITY/2&&cz>=-CITY/2&&cz<CITY/2;}
