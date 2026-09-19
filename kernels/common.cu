@@ -52,8 +52,11 @@ __device__ float3 cameraRight(const float* C){return make_float3(cosf(C[3]),0.0f
 __device__ float3 cameraPosition(const float* C){return make_float3(C[0],C[1],C[2]);}
 __device__ float3 sunDirection(const float* C){return norm3(make_float3(cosf(C[7])*cosf(C[8]),sinf(C[8]),sinf(C[7])*cosf(C[8])));}
 __device__ float3 rayDirection(const float* C,int x,int y,int width,int height){
+ // Low-discrepancy sub-pixel sequence. Avoid the old two irrational multiples of frame
+ // number, whose correlated motion was visible as diagonal crawling/jitter in fine facades.
  float jitterX=0.0f;float jitterY=0.0f;
- if(C[15]<0.5f){jitterX=fractf(C[6]*0.754877666f)-0.5f;jitterY=fractf(C[6]*0.569840296f)-0.5f;}
+ if(C[15]<0.5f){int fi=(int)C[6];unsigned int hx=hashU((unsigned int)(fi*2+1));unsigned int hy=hashU((unsigned int)(fi*2+2));
+  jitterX=((float)(hx&65535u)/65536.0f)-0.5f;jitterY=((float)(hy&65535u)/65536.0f)-0.5f;}
  float sx=((float)x+0.5f+jitterX-(float)width*0.5f)/(float)height*1.08f;
  float sy=-((float)y+0.5f+jitterY-(float)height*0.5f)/(float)height*1.08f;
  float3 f=cameraForward(C);float3 r=cameraRight(C);float3 u=cross3(f,r);
