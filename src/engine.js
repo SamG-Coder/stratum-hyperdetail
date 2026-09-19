@@ -9,13 +9,23 @@ export class Engine{
   if(!device){if(!navigator.gpu)throw Error('WebGPU requires a supported browser on localhost or HTTPS.');adapter=await navigator.gpu.requestAdapter({powerPreference:'high-performance'});if(!adapter)throw Error('No WebGPU adapter available.');device=await adapter.requestDevice({requiredFeatures:adapter.features.has('timestamp-query')?['timestamp-query']:[]});}
   this.device=device;this.adapter=adapter;this.onProgress=onProgress;
   this.runtime=new GpuRuntime(device,{adapter,ownsDevice,uniformCapacity:262144,onError:e=>{this.errors.push(String(e?.message||e));onError(e);}});this.info=this.runtime.describe();this.context=this.canvas?.getContext('webgpu')??null;
-  const response=await fetch(new URL('../generated/manifest.json',import.meta.url));if(!response.ok)throw Error('Run npm run build before starting the server.');
-  this.manifest=await response.json();if(!this.manifest.some(k=>k.entry==='buildGroupBounds'))throw Error('Old generated shaders. Run npm run build, then reload.');
-  let compile;const sources=new Map();if(recompile)({compile}=await import('../vendor/cuda-webshader/compiler/compiler.js'));
+  // Production compiles directly from authored CUDA. There is no generated-shader
+  // deployment dependency: .cu + compiler are the source of truth in the browser.
+  const specs=[
+   ['initCamera','world',[1,1,1],['common','world']],['stepCamera','world',[1,1,1],['common','world']],['clearQueue','world',[1,1,1],['common','world']],['prepareLots','world',[64,1,1],['common','world']],['planBounds','world',[8,1,1],['common','world']],
+   ['buildGroupBounds','accel',[64,1,1],['common','world','geometry','sink','assets','accel']],['reduceGroupBounds','accel',[64,1,1],['common','world','geometry','sink','assets','accel']],
+   ['tracePrimary','trace',[8,8,1],['common','world','geometry','sink','assets','trace']],['shadePixels','shade',[8,8,1],['common','world','materials','shade']],['resolveFrame','shade',[8,8,1],['common','world','materials','shade']],['probeGrammar','probe',[1,1,1],['common','world','geometry','sink','assets','probe']]
+  ];
+  this.manifest=specs.map(([entry,file,workgroupSize,dependencies])=>({entry,file,workgroupSize,dependencies}));
+  const {compile}=await import('../vendor/cuda-webshader/compiler/compiler.js');const sources=new Map();
+  const sourceNames=[...new Set(this.manifest.flatMap(s=>s.dependencies))];
+  onProgress('Load authored CUDA',.02);
+  await Promise.all(sourceNames.map(async n=>{const r=await fetch(new URL('../kernels/'+n+'.cu',import.meta.url),{cache:'no-cache'});if(!r.ok)throw Error('Missing authored CUDA: '+n+'.cu');sources.set(n,await r.text());}));
   for(let i=0;i<this.manifest.length;i++){
-   const spec=this.manifest[i];onProgress('Compile '+spec.entry,i/this.manifest.length*.6);let artifact;
-   if(compile){for(const n of spec.dependencies)if(!sources.has(n))sources.set(n,await(await fetch(new URL('../kernels/'+n+'.cu',import.meta.url))).text());artifact=compile(spec.dependencies.map(n=>sources.get(n)).join('\n'),{entry:spec.entry,workgroupSize:spec.workgroupSize});}
-   else{const r=await fetch(new URL('../generated/'+spec.entry+'.json',import.meta.url));if(!r.ok)throw Error('Missing generated '+spec.entry);artifact=await r.json();}
+   const spec=this.manifest[i];onProgress('CUDA → WebGPU · '+spec.entry,.04+i/this.manifest.length*.56);
+   const source=spec.dependencies.map(n=>sources.get(n)).join('\n');const artifact=compile(source,{entry:spec.entry,workgroupSize:spec.workgroupSize});
+   if(artifact.metadata.bindings.length>8)throw Error(spec.entry+' exceeds portable storage-buffer budget');
+   if(artifact.metadata.workgroupStorageBytes>16384)throw Error(spec.entry+' exceeds portable workgroup-memory budget');
    this.kernels[spec.entry]=await this.runtime.kernel(artifact);
   }
   const a=ABI,sizes={World:a.WORLD_LOTS*a.LOT_FLOATS,Tags:a.WORLD_LOTS*4,Nodes:a.WORLD_LOTS*a.GROUP_NODES*8,Origin:4,C:64,I:32,Queue:a.WORLD_LOTS+1,Args:a.BUILD_CHUNKS*21,Stats:256};
