@@ -19,7 +19,10 @@ jobs:
         with:
           node-version: 22
       - name: Build shaders and run source plus native geometry parity tests
-        run: npm test
+        run: |
+          npm run build
+          npm run test:source
+          node tools/native-test.mjs
       - name: Package static site
         run: npm run pages
       - uses: actions/upload-pages-artifact@v4
