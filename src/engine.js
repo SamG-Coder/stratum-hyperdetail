@@ -21,11 +21,21 @@ export class Engine{
   const sourceNames=[...new Set(this.manifest.flatMap(s=>s.dependencies))];
   onProgress('Load authored CUDA',.02);
   await Promise.all(sourceNames.map(async n=>{const r=await fetch(new URL('../kernels/'+n+'.cu',import.meta.url),{cache:'no-cache'});if(!r.ok)throw Error('Missing authored CUDA: '+n+'.cu');sources.set(n,await r.text());}));
+  // Cache compiled portable artifacts by the exact CUDA source + entry configuration.
+  // This cache is local to the browser and can never become stale: any source/compiler URL
+  // change produces a different key. WebGPU pipeline creation still happens per device.
+  const hashText=async text=>{const bytes=new TextEncoder().encode(text);if(globalThis.crypto?.subtle){const h=new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));return Array.from(h,b=>b.toString(16).padStart(2,'0')).join('');}let h=2166136261;for(const b of bytes)h=Math.imul(h^b,16777619);return(h>>>0).toString(16);};
+  const cacheName='stratum-cuda-artifacts-v1',cache=globalThis.caches?await caches.open(cacheName):null;
   for(let i=0;i<this.manifest.length;i++){
-   const spec=this.manifest[i];onProgress('CUDA → WebGPU · '+spec.entry,.04+i/this.manifest.length*.56);
-   const source=spec.dependencies.map(n=>sources.get(n)).join('\n');const artifact=compile(source,{entry:spec.entry,workgroupSize:spec.workgroupSize});
-   if(artifact.metadata.bindings.length>8)throw Error(spec.entry+' exceeds portable storage-buffer budget');
-   if(artifact.metadata.workgroupStorageBytes>16384)throw Error(spec.entry+' exceeds portable workgroup-memory budget');
+   const spec=this.manifest[i],source=spec.dependencies.map(n=>sources.get(n)).join('\n');
+   const key=await hashText('cw-runtime-1|'+spec.entry+'|'+spec.workgroupSize.join(',')+'|'+source),url=new URL('../.shader-cache/'+key+'.json',import.meta.url);
+   let artifact=null;if(cache){const hit=await cache.match(url);if(hit){try{artifact=await hit.json();onProgress('Cached · '+spec.entry,.04+i/this.manifest.length*.56);}catch{artifact=null;}}}
+   if(!artifact){onProgress('CUDA → WebGPU · '+spec.entry,.04+i/this.manifest.length*.56);await new Promise(requestAnimationFrame);artifact=compile(source,{entry:spec.entry,workgroupSize:spec.workgroupSize});
+    if(artifact.metadata.bindings.length>8)throw Error(spec.entry+' exceeds portable storage-buffer budget');
+    if(artifact.metadata.workgroupStorageBytes>16384)throw Error(spec.entry+' exceeds portable workgroup-memory budget');
+    if(cache){const {ast,kernel,...portable}=artifact;await cache.put(url,new Response(JSON.stringify(portable),{headers:{'Content-Type':'application/json'}}));}
+   }
+   onProgress('WebGPU · '+spec.entry,.05+(i+.65)/this.manifest.length*.56);await new Promise(requestAnimationFrame);
    this.kernels[spec.entry]=await this.runtime.kernel(artifact);
   }
   const a=ABI,sizes={World:a.WORLD_LOTS*a.LOT_FLOATS,Tags:a.WORLD_LOTS*4,Nodes:a.WORLD_LOTS*a.GROUP_NODES*8,Origin:4,C:64,I:32,Queue:a.WORLD_LOTS+1,Args:a.BUILD_CHUNKS*21,Stats:256};
