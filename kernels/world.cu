@@ -56,28 +56,32 @@ __global__ void stepCamera(float* C,const float* I,const float* World,float dt,i
 // Visibility and screen-space detail requests, one GPU thread per physical cache slot.
 __global__ void selectPages(const float* C,const float* World,const float* Meta,float* Req){
  int s=(int)(blockIdx.x*blockDim.x+threadIdx.x);if(s>=PAGES)return;int b=s*REQUESTS;
- // Keep the bounded 16x16 physical cache, but bias its logical footprint forward.
- // More of the cache is spent on buildings that are about to become inspection-scale.
- float3 cf=cameraForward(C);int lookX=(int)floorf((C[0]+cf.x*CELL*3.0f+CELL*0.5f)/CELL);
- int lookZ=(int)floorf((C[2]+cf.z*CELL*3.0f+CELL*0.5f)/CELL);
- int ax=lookX-CACHE_SIDE/2;int az=lookZ-CACHE_SIDE/2;
- int cx=ax+imod(s%CACHE_SIDE-imod(ax,CACHE_SIDE),CACHE_SIDE);
- int cz=az+imod(s/CACHE_SIDE-imod(az,CACHE_SIDE),CACHE_SIDE);
- Req[b]=(float)cx;Req[b+1]=(float)cz;Req[b+2]=0.0f;Req[b+3]=0.0f;
- if(!inCity(cx,cz))return;
+ // Dynamic view-priority cache: physical slots are mapped to a polar/frustum distribution
+ // around the camera rather than a fixed 16x16 square. Near rings are dense; farther rings
+ // widen with distance and remain centred on the current view direction.
+ int camX=(int)floorf((C[0]+CELL*0.5f)/CELL),camZ=(int)floorf((C[2]+CELL*0.5f)/CELL);
+ float3 cf=cameraForward(C),cr=cameraRight(C);
+ int ring=s/32,lane=s%32;float ringDist=(float)ring*2.15f+1.0f;
+ float lateral=((float)lane-15.5f)*0.58f*(1.0f+(float)ring*0.34f);
+ float forward=ringDist+fabsf((float)lane-15.5f)*0.035f;
+ int cx=camX+(int)floorf(cf.x*forward+cr.x*lateral+(cf.x*forward+cr.x*lateral>=0.0f?0.5f:-0.5f));
+ int cz=camZ+(int)floorf(cf.z*forward+cr.z*lateral+(cf.z*forward+cr.z*lateral>=0.0f?0.5f:-0.5f));
+ // Reserve the first 32 slots for a tight camera neighbourhood so side/back inspection
+ // cannot lose geometry merely because the view rotates.
+ if(s<32){int ox=(s%8)-4,oz=(s/8)-2;cx=camX+ox;cz=camZ+oz;}
+ Req[b]=(float)cx;Req[b+1]=(float)cz;Req[b+2]=0.0f;Req[b+3]=0.0f;Req[b+4]=0.0f;
+ if(!inCity(cx,cz)||C[17]>0.5f)return;
  int w=worldIndex(cx,cz)*8;float h=World[w+2];float3 delta=make_float3((float)cx*CELL-C[0],h*0.5f-C[1],(float)cz*CELL-C[2]);
- float dist=fmaxf(1.0f,length3(delta)-23.0f);float z=dot3(delta,cameraForward(C));
- float xx=fabsf(dot3(delta,cameraRight(C)));float yy=fabsf(dot3(delta,cross3(cameraForward(C),cameraRight(C))));
- float aspect=C[20]>0.1f?C[20]:1.7778f;
- bool visible=(z+45.0f>0.0f&&xx<(z*0.54f*aspect+65.0f)&&yy<z*0.54f+65.0f)||dist<55.0f;
- if(!visible||C[17]>0.5f)return;
- float ppm=C[13]/(1.08f*dist);
- // ARBOR-style residency: a cached lot is always the SAME deterministic full-detail lot.
- // Projected footprint controls shading frequency and ray-time detail, not page replacement.
- // This removes geometry regeneration/popping when the camera crosses a LOD threshold.
- int m=s*MS;bool same=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
+ float dist=fmaxf(1.0f,length3(delta)-23.0f);float z=dot3(delta,cf),xx=fabsf(dot3(delta,cr));
+ float yy=fabsf(dot3(delta,cross3(cf,cr)));float aspect=C[20]>0.1f?C[20]:1.7778f;
+ bool visible=(z+55.0f>0.0f&&xx<(fmaxf(z,0.0f)*0.60f*aspect+78.0f)&&yy<fmaxf(z,0.0f)*0.60f+70.0f)||dist<80.0f;
+ if(!visible)return;
+ float ppm=C[13]/(1.08f*dist);int m=s*MS;
+ bool same=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
  Req[b+2]=5.0f;Req[b+4]=ppm;
- if(!same)Req[b+3]=10000.0f/(dist+5.0f)+80.0f;
+ // Prioritise projected importance, then distance. A newly visible high-footprint building
+ // beats a distant one even when both want the same bounded cache.
+ if(!same)Req[b+3]=180.0f+ppm*42.0f+9000.0f/(dist+8.0f)+(s<32?90.0f:0.0f);
 }
 __global__ void schedulePages(const float* Req,int* Queue,float* Stats){
  if(blockIdx.x!=0||threadIdx.x!=0)return;
