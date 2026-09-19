@@ -56,8 +56,11 @@ __global__ void stepCamera(float* C,const float* I,const float* World,float dt,i
 // Visibility and screen-space detail requests, one GPU thread per physical cache slot.
 __global__ void selectPages(const float* C,const float* World,const float* Meta,float* Req){
  int s=(int)(blockIdx.x*blockDim.x+threadIdx.x);if(s>=PAGES)return;int b=s*REQUESTS;
- int ax=(int)floorf((C[0]+CELL*0.5f)/CELL)-CACHE_SIDE/2;
- int az=(int)floorf((C[2]+CELL*0.5f)/CELL)-CACHE_SIDE/2;
+ // Keep the bounded 16x16 physical cache, but bias its logical footprint forward.
+ // More of the cache is spent on buildings that are about to become inspection-scale.
+ float3 cf=cameraForward(C);int lookX=(int)floorf((C[0]+cf.x*CELL*3.0f+CELL*0.5f)/CELL);
+ int lookZ=(int)floorf((C[2]+cf.z*CELL*3.0f+CELL*0.5f)/CELL);
+ int ax=lookX-CACHE_SIDE/2;int az=lookZ-CACHE_SIDE/2;
  int cx=ax+imod(s%CACHE_SIDE-imod(ax,CACHE_SIDE),CACHE_SIDE);
  int cz=az+imod(s/CACHE_SIDE-imod(az,CACHE_SIDE),CACHE_SIDE);
  Req[b]=(float)cx;Req[b+1]=(float)cz;Req[b+2]=0.0f;Req[b+3]=0.0f;
