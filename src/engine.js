@@ -95,13 +95,10 @@ export class Engine {
     const c=this.calls,groups=[Math.ceil(this.width/8),Math.ceil(this.height/8)];
     const gen=this.stage(0,timed);
     c.stepCamera.setScalars({width:this.width,height:this.height,dt:Math.max(0,Math.min(.1,dt))});
-    // Keep the authored high-detail analytic page renderer. Pages are generated once for
-    // visible lots and refined from the same deterministic seed; the far procedural path
-    // only fills visibility until the full page is resident.
+    // Direct authored ray-query renderer: the complete building grammar is evaluated for
+    // every lot, so page generation is not part of primary city visibility.
     gen.dispatch(c.stepCamera,[1]).dispatch(c.selectPages,[4]).dispatch(c.schedulePages,[1])
-      .dispatch(c.generatePages,[ABI.GENERATION_BUDGET]).dispatch(c.sortPages,[ABI.GENERATION_BUDGET]);
-    for(const [call,count]of this.bvh)gen.dispatch(call,[count]);
-    gen.dispatch(c.commitPages,[1]).dispatch(c.summarise,[1]).submit();
+      .dispatch(c.summarise,[1]).submit();
     if(draw){
       this.stage(1,timed).dispatch(c.tracePrimary,groups).submit();
       const learn=this.stage(2,timed);
