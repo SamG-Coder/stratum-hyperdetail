@@ -198,7 +198,11 @@ __device__ float2 traceScene(const float* World,const float* Meta,const float* P
   if(!inCity(cx,cz)||t>best||t>bounds.y)break;
   int wi=worldIndex(cx,cz);int slot=pageIndex(cx,cz);int m=slot*MS;
   bool cached=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
-  float2 hit=cached?pageHit(P,Nodes,Order,slot,ro,rd,best):macroHit(World,wi,ro,rd,best);
+  // Residency is an acceleration hint, not a representation switch. Always evaluate the
+  // deterministic ray-time building first, then let the cached full-detail page refine it.
+  // This keeps silhouette/facade identity continuous while a page is generated or evicted.
+  float2 hit=macroHit(World,wi,ro,rd,best);
+  if(cached){float2 fine=pageHit(P,Nodes,Order,slot,ro,rd,hit.x);if(fine.x<hit.x)hit=fine;}
   if(hit.x<best){best=hit.x;found=(int)hit.y;}
   if(tx<tz){t=tx;tx+=dx;cx+=sx;}else{t=tz;tz+=dz;cz+=sz;}
  }
