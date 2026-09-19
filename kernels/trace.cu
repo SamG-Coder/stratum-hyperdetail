@@ -144,68 +144,81 @@ __device__ float macroCylinder(float3 ro,float3 rd,float3 c,float radius,float h
   if(t0>0.001f&&fabsf(p.y+rd.y*t0)<=halfHeight)best=t0;if(t1>0.001f&&fabsf(p.y+rd.y*t1)<=halfHeight)best=fminf(best,t1);}
  return best;
 }
-__device__ float2 macroHit(const float* World,int wi,float3 ro,float3 rd,float best){
- int b=wi*8;int type=(int)World[b+3];if(type==3||type==4)return make_float2(best,-10000.0f);
- int cx=wi%CITY-CITY/2;int cz=wi/CITY-CITY/2;float x=(float)cx*CELL;float z=(float)cz*CELL;
- float w=World[b],d=World[b+1],h=World[b+2],seed=World[b+6];float hit=best;
- // Base mass remains analytic, but the far silhouette is no longer just one tall box.
- float bodyTop=h;float roofRise=type==0?4.8f:(type==1?13.8f:16.0f);
- float t=macroBox(ro,rd,make_float3(x,bodyTop*0.5f,z),make_float3(w,bodyTop*0.5f,d));if(t<hit)hit=t;
- // Roof mass. Pitched roofs use nested boxes to approximate the authored slope at ray time;
- // tower/dome lots keep their distinctive upper mass outside the resident geometry cache.
- if(type==0){
-  for(int band=0;band<4;band++){float f=(float)band/4.0f;float yy=h+0.55f+f*3.8f;float shrink=f*0.72f;
-   t=macroBox(ro,rd,make_float3(x,yy,z),make_float3(fmaxf(0.8f,w-shrink),0.52f,fmaxf(0.8f,d-shrink)));if(t<hit)hit=t;}
-  // Chimneys and dormer silhouettes are deterministic and require no page residency.
-  for(int k=0;k<4;k++){float xx=x+(k%2==0?-w*0.52f:w*0.52f);float zz=z+((float)(k/2)-0.5f)*d;
-   t=macroBox(ro,rd,make_float3(xx,h+3.9f,zz),make_float3(0.52f,2.25f,0.60f));if(t<hit)hit=t;}
-  for(int k=0;k<4;k++){float xx=x+(k%2==0?-w*0.67f:w*0.67f);float zz=z+((float)(k/2)-0.5f)*d*0.95f;
-   t=macroBox(ro,rd,make_float3(xx,h+2.45f,zz),make_float3(1.38f,1.08f,1.10f));if(t<hit)hit=t;}
- }else if(type==1){
-  t=macroCylinder(ro,rd,make_float3(x,h+2.2f,z),w*0.72f,2.0f);if(t<hit)hit=t;
-  // Dome silhouette: stacked analytic discs contract toward the crown.
-  for(int band=0;band<6;band++){float f=(float)band/6.0f;float rad=w*0.79f*sqrtf(fmaxf(0.02f,1.0f-f*f));float yy=h+3.2f+f*8.2f;
-   t=macroCylinder(ro,rd,make_float3(x,yy,z),rad,0.82f);if(t<hit)hit=t;}
-  t=macroCylinder(ro,rd,make_float3(x,h+12.8f,z),0.30f,1.9f);if(t<hit)hit=t;
- }else{
-  t=macroBox(ro,rd,make_float3(x,h+2.6f,z),make_float3(w*0.72f,2.6f,d+0.2f));if(t<hit)hit=t;
-  for(int k=0;k<2;k++){float xx=x+(k==0?-w*0.75f:w*0.75f),zz=z+d*0.60f;
-   t=macroBox(ro,rd,make_float3(xx,h+5.7f,zz),make_float3(2.4f,7.4f,2.4f));if(t<hit)hit=t;
-   for(int band=0;band<3;band++){float yy=h+11.4f+(float)band*1.5f;float sh=2.6f-(float)band*0.55f;
-    t=macroBox(ro,rd,make_float3(xx,yy,zz),make_float3(sh,0.85f,sh));if(t<hit)hit=t;}
-   t=macroCylinder(ro,rd,make_float3(xx,h+16.3f,zz),0.20f,1.4f);if(t<hit)hit=t;
-  }
- }
- // A small deterministic roof-service population keeps distant rooflines from collapsing
- // into perfectly clean CG silhouettes.
- for(int k=0;k<3;k++){float rx=hash1((int)seed+901+k*7)*2.0f-1.0f;float rz=hash1((int)seed+947+k*11)*2.0f-1.0f;
-  float xx=x+rx*w*0.55f,zz=z+rz*d*0.55f;float hh=0.42f+hash1((int)seed+983+k)*0.48f;
-  t=macroBox(ro,rd,make_float3(xx,h+hh,zz),make_float3(0.28f,hh,0.28f));if(t<hit)hit=t;}
- if(hit<best)return make_float2(hit,(float)(-wi-2));return make_float2(best,-10000.0f);
+__device__ float authoredBox(float3 ro,float3 rd,float3 c,float3 h,float best){
+ float t=macroBox(ro,rd,c,h);return t<best?t:best;
 }
-__device__ float proceduralFacadeDepth(const float* World,int wi,float3 ro,float3 rd,float best){
- // Seeded facade protrusions exist whether or not a geometry page is resident.
- // Only evaluate them when the macro facade is close enough to matter to the current ray.
- int b=wi*8;int type=(int)World[b+3];if(type==3||type==4)return best;
- int cx=wi%CITY-CITY/2,cz=wi/CITY-CITY/2;float x=(float)cx*CELL,z=(float)cz*CELL;
- float w=World[b],d=World[b+1],h=World[b+2],seed=World[b+6];int floors=(int)World[b+5];float hit=best;
- for(int face=0;face<4;face++){
-  float den=face==0?rd.z:(face==1?rd.x:(face==2?-rd.z:-rd.x));if(den>=-0.00001f)continue;
-  float plane=face==0?z+d:(face==1?x+w:(face==2?-z+d:-x+w));
-  float origin=face==0?ro.z:(face==1?ro.x:(face==2?-ro.z:-ro.x));
-  float t=(plane-origin)/den;if(t<=0.001f||t>=hit)continue;float3 p=ro+rd*t;
-  float u=face%2==0?p.x-x:p.z-z;if(fabsf(u)>(face%2==0?w:d)+0.8f||p.y<4.0f||p.y>h)continue;
-  float rowf=(p.y-4.2f)/3.8f;int row=(int)floorf(rowf);if(row<0||row>=floors)continue;
-  float ext=face%2==0?w:d;float bay=ext*0.48f;float nearest=floorf(u/bay+0.5f)*bay;
-  if(fabsf(u-nearest)<1.18f){
-   // Window sill/header projection.
-   float fv=fractf(rowf);if(fv<0.10f||fv>0.76f)hit=fminf(hit,t-0.20f/fmaxf(0.12f,-den));
-   // Deterministic balconies occupy a subset of bays and project much farther.
-   int bayId=(int)floorf(u/bay+8.5f);float chance=hash2(bayId,row,(int)seed+face*97);
-   if(chance>0.72f&&fv>0.12f&&fv<0.43f)hit=fminf(hit,t-0.54f/fmaxf(0.12f,-den));
+__device__ float authoredWall(float3 ro,float3 rd,int face,float x,float z,float w,float d,float u,float y,float out,float hw,float hy,float hd,float best){
+ float3 p=make_float3(x+u,y,z+d+out),h3=make_float3(hw,hy,hd);
+ if(face==1){p=make_float3(x+w+out,y,z+u);h3=make_float3(hd,hy,hw);}
+ if(face==2)p=make_float3(x+u,y,z-d-out);
+ if(face==3){p=make_float3(x-w-out,y,z+u);h3=make_float3(hd,hy,hw);}
+ return authoredBox(ro,rd,p,h3,best);
+}
+// Direct ray query of the SAME authored building definition used by generatePages.
+// Nothing here depends on cache residency or camera distance.
+__device__ float2 authoredBuildingHit(const float* World,int wi,float3 ro,float3 rd,float best){
+ int b=wi*8,type=(int)World[b+3];int cx=wi%CITY-CITY/2,cz=wi/CITY-CITY/2;
+ float x=(float)cx*CELL,z=(float)cz*CELL,w=World[b],d=World[b+1],h=World[b+2],seed=World[b+6];int floors=(int)World[b+5];float hit=best;
+ if(type==4)return make_float2(best,-10000.0f);
+ if(type==3){
+  hit=authoredBox(ro,rd,make_float3(x,-0.12f,z),make_float3(15.5f,0.22f,15.5f),hit);
+  for(int k=0;k<8;k++){float tx=x+(k<4?-10.0f:10.0f),tz=z+((float)(k%4)-1.5f)*6.7f;float th=5.0f+hash1((int)seed+k)*3.0f;
+   float t=macroCylinder(ro,rd,make_float3(tx,th*0.4f,tz),0.19f,th*0.4f);if(t<hit)hit=t;
+   // foliage uses the exact same deterministic envelope/ray-leaf evaluator as cached parks
+   float3 c=make_float3(tx,th+0.8f,tz),rad=make_float3(2.4f,3.7f,2.4f);float2 span=boxRange(ro,rd,c-rad,c+rad);
+   if(span.y>=fmaxf(0.001f,span.x)&&span.x<hit){t=foliageHit(ro,rd,c,rad,(int)seed+k,span.x,span.y);if(t<hit)hit=t;}
   }
+  return hit<best?make_float2(hit,(float)(-wi-2)):make_float2(best,-10000.0f);
  }
- return hit;
+ // Ground/body/arcade mass.
+ hit=authoredBox(ro,rd,make_float3(x,0.15f,z),make_float3(w+1.1f,0.25f,d+1.1f),hit);
+ hit=authoredBox(ro,rd,make_float3(x,(h+4.0f)*0.5f,z),make_float3(w,(h-4.0f)*0.5f,d),hit);
+ hit=authoredBox(ro,rd,make_float3(x,4.0f,z),make_float3(w+0.24f,0.24f,d+0.24f),hit);
+ // Roof family exactly follows the authored seed/type.
+ if(type==0){
+  for(int band=0;band<8;band++){float f=((float)band+0.5f)/8.0f;float yy=h+f*4.4f;float shrink=f*w*0.92f;
+   hit=authoredBox(ro,rd,make_float3(x,yy,z),make_float3(fmaxf(0.20f,w-shrink),0.29f,d+0.45f),hit);}
+  hit=authoredBox(ro,rd,make_float3(x,h+4.8f,z),make_float3(0.12f,0.14f,d+0.7f),hit);
+  for(int k=0;k<4;k++){float xx=x+(k%2==0?-w*0.52f:w*0.52f),zz=z+((float)(k/2)-0.5f)*d;
+   hit=authoredBox(ro,rd,make_float3(xx,h+3.8f,zz),make_float3(0.48f,2.2f,0.55f),hit);
+   hit=authoredBox(ro,rd,make_float3(xx,h+6.0f,zz),make_float3(0.66f,0.17f,0.72f),hit);}
+  for(int k=0;k<4;k++){float xx=x+(k%2==0?-w*0.68f:w*0.68f),zz=z+((float)(k/2)-0.5f)*d*0.96f;
+   hit=authoredBox(ro,rd,make_float3(xx,h+2.5f,zz),make_float3(1.35f,1.05f,1.05f),hit);}
+ }else if(type==1){
+  float t=macroCylinder(ro,rd,make_float3(x,h+2.2f,z),w*0.72f,2.0f);if(t<hit)hit=t;
+  for(int band=0;band<10;band++){float f=((float)band+0.5f)/10.0f,rad=w*0.79f*sqrtf(fmaxf(0.02f,1.0f-f*f));t=macroCylinder(ro,rd,make_float3(x,h+3.1f+f*8.4f,z),rad,0.46f);if(t<hit)hit=t;}
+  t=macroCylinder(ro,rd,make_float3(x,h+12.2f,z),0.24f,1.45f);if(t<hit)hit=t;
+ }else{
+  hit=authoredBox(ro,rd,make_float3(x,h+2.6f,z),make_float3(w*0.72f,2.6f,d+0.2f),hit);
+  for(int k=0;k<2;k++){float xx=x+(k==0?-w*0.75f:w*0.75f),zz=z+d*0.60f;
+   hit=authoredBox(ro,rd,make_float3(xx,h+3.5f,zz),make_float3(2.3f,7.2f,2.3f),hit);
+   for(int band=0;band<6;band++){float f=((float)band+0.5f)/6.0f;hit=authoredBox(ro,rd,make_float3(xx,h+11.2f+f*4.4f,zz),make_float3(2.55f*(1.0f-f),0.38f,2.55f),hit);}
+   float t=macroCylinder(ro,rd,make_float3(xx,h+16.0f,zz),0.17f,1.2f);if(t<hit)hit=t;}
+ }
+ // Full facade grammar: courses, windows, frames, mullions, balconies and quoins are
+ // intersected directly from the lot definition for EVERY building.
+ for(int face=0;face<4;face++){
+  float ext=face%2==0?w:d;
+  for(int row=0;row<floors;row++){float y=6.1f+(float)row*3.8f;
+   for(int j=0;j<4;j++){float u=((float)j-1.5f)*(ext*0.48f);
+    hit=authoredWall(ro,rd,face,x,z,w,d,u,y,0.032f,0.91f,1.2f,0.045f,hit);
+    hit=authoredWall(ro,rd,face,x,z,w,d,u,y-1.33f,0.22f,1.13f,0.14f,0.29f,hit);
+    hit=authoredWall(ro,rd,face,x,z,w,d,u,y+1.32f,0.18f,1.11f,0.14f,0.23f,hit);
+    hit=authoredWall(ro,rd,face,x,z,w,d,u-1.02f,y,0.12f,0.11f,1.2f,0.17f,hit);
+    hit=authoredWall(ro,rd,face,x,z,w,d,u+1.02f,y,0.12f,0.11f,1.2f,0.17f,hit);
+    hit=authoredWall(ro,rd,face,x,z,w,d,u,y,0.12f,0.044f,1.2f,0.08f,hit);
+    // balcony slab + rail + verticals, deterministic authored structure
+    hit=authoredWall(ro,rd,face,x,z,w,d,u,y-1.18f,0.56f,1.16f,0.085f,0.65f,hit);
+    hit=authoredWall(ro,rd,face,x,z,w,d,u,y-0.28f,1.12f,1.15f,0.035f,0.035f,hit);
+    for(int k=0;k<5;k++)hit=authoredWall(ro,rd,face,x,z,w,d,u+((float)k-2.0f)*0.53f,y-0.64f,1.12f,0.025f,0.37f,0.026f,hit);
+   }
+  }
+  for(int j=0;j<=floors;j++)hit=authoredWall(ro,rd,face,x,z,w,d,0.0f,4.2f+(float)j*3.8f,0.17f,ext+0.15f,0.11f,0.22f,hit);
+  for(int k=0;k<14;k++){float yy=4.45f+(float)k*(h-4.0f)/14.0f,width=k%2==0?0.52f:0.30f;
+   hit=authoredWall(ro,rd,face,x,z,w,d,-ext+width,yy,0.12f,width,0.16f,0.16f,hit);
+   hit=authoredWall(ro,rd,face,x,z,w,d,ext-width,yy,0.12f,width,0.16f,0.16f,hit);}
+ }
+ return hit<best?make_float2(hit,(float)(-wi-2)):make_float2(best,-10000.0f);
 }
 __device__ float2 traceScene(const float* World,const float* Meta,const float* P,const float* Nodes,const int* Order,float3 ro,float3 rd){
  float best=FAR;int found=-10000;
@@ -220,14 +233,9 @@ __device__ float2 traceScene(const float* World,const float* Meta,const float* P
  float dx=CELL*fabsf(safeInv(rd.x));float dz=CELL*fabsf(safeInv(rd.z));
  for(int step=0;step<140;step++){
   if(!inCity(cx,cz)||t>best||t>bounds.y)break;
-  int wi=worldIndex(cx,cz);int slot=pageIndex(cx,cz);int m=slot*MS;
-  bool cached=Meta[m+3]>0.5f&&(int)Meta[m]==cx&&(int)Meta[m+1]==cz;
-  // The full authored analytic page is canonical when resident. The procedural far path
-  // preserves the SAME seed/layout only until that page is available.
-  float2 hit;
-  if(cached)hit=pageHit(P,Nodes,Order,slot,ro,rd,best);
-  else{hit=macroHit(World,wi,ro,rd,best);float procedural=proceduralFacadeDepth(World,wi,ro,rd,hit.x);
-   if(procedural<hit.x)hit=make_float2(procedural,(float)(-wi-2));}
+  int wi=worldIndex(cx,cz);
+  // Direct authored query for every lot. No resident/nonresident model switch exists.
+  float2 hit=authoredBuildingHit(World,wi,ro,rd,best);
   if(hit.x<best){best=hit.x;found=(int)hit.y;}
   if(tx<tz){t=tx;tx+=dx;cx+=sx;}else{t=tz;tz+=dz;cz+=sz;}
  }
