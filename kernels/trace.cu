@@ -183,6 +183,30 @@ __device__ float2 macroHit(const float* World,int wi,float3 ro,float3 rd,float b
   t=macroBox(ro,rd,make_float3(xx,h+hh,zz),make_float3(0.28f,hh,0.28f));if(t<hit)hit=t;}
  if(hit<best)return make_float2(hit,(float)(-wi-2));return make_float2(best,-10000.0f);
 }
+__device__ float proceduralFacadeDepth(const float* World,int wi,float3 ro,float3 rd,float best){
+ // Seeded facade protrusions exist whether or not a geometry page is resident.
+ // Only evaluate them when the macro facade is close enough to matter to the current ray.
+ int b=wi*8;int type=(int)World[b+3];if(type==3||type==4)return best;
+ int cx=wi%CITY-CITY/2,cz=wi/CITY-CITY/2;float x=(float)cx*CELL,z=(float)cz*CELL;
+ float w=World[b],d=World[b+1],h=World[b+2],seed=World[b+6];int floors=(int)World[b+5];float hit=best;
+ for(int face=0;face<4;face++){
+  float den=face==0?rd.z:(face==1?rd.x:(face==2?-rd.z:-rd.x));if(den>=-0.00001f)continue;
+  float plane=face==0?z+d:(face==1?x+w:(face==2?-z+d:-x+w));
+  float origin=face==0?ro.z:(face==1?ro.x:(face==2?-ro.z:-ro.x));
+  float t=(plane-origin)/den;if(t<=0.001f||t>=hit)continue;float3 p=ro+rd*t;
+  float u=face%2==0?p.x-x:p.z-z;if(fabsf(u)>(face%2==0?w:d)+0.8f||p.y<4.0f||p.y>h)continue;
+  float rowf=(p.y-4.2f)/3.8f;int row=(int)floorf(rowf);if(row<0||row>=floors)continue;
+  float ext=face%2==0?w:d;float bay=ext*0.48f;float nearest=floorf(u/bay+0.5f)*bay;
+  if(fabsf(u-nearest)<1.18f){
+   // Window sill/header projection.
+   float fv=fractf(rowf);if(fv<0.10f||fv>0.76f)hit=fminf(hit,t-0.20f/fmaxf(0.12f,-den));
+   // Deterministic balconies occupy a subset of bays and project much farther.
+   int bayId=(int)floorf(u/bay+8.5f);float chance=hash2(bayId,row,(int)seed+face*97);
+   if(chance>0.72f&&fv>0.12f&&fv<0.43f)hit=fminf(hit,t-0.54f/fmaxf(0.12f,-den));
+  }
+ }
+ return hit;
+}
 __device__ float2 traceScene(const float* World,const float* Meta,const float* P,const float* Nodes,const int* Order,float3 ro,float3 rd){
  float best=FAR;int found=-10000;
  if(rd.y<-0.000001f){best=-ro.y/rd.y;found=-1;if(best>FAR){best=FAR;found=-10000;}}
@@ -202,6 +226,8 @@ __device__ float2 traceScene(const float* World,const float* Meta,const float* P
   // deterministic ray-time building first, then let the cached full-detail page refine it.
   // This keeps silhouette/facade identity continuous while a page is generated or evicted.
   float2 hit=macroHit(World,wi,ro,rd,best);
+  float procedural=proceduralFacadeDepth(World,wi,ro,rd,hit.x);
+  if(procedural<hit.x)hit=make_float2(procedural,(float)(-wi-2));
   if(cached){float2 fine=pageHit(P,Nodes,Order,slot,ro,rd,hit.x);if(fine.x<hit.x)hit=fine;}
   if(hit.x<best){best=hit.x;found=(int)hit.y;}
   if(tx<tz){t=tx;tx+=dx;cx+=sx;}else{t=tz;tz+=dz;cz+=sz;}
